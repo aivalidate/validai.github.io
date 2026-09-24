@@ -84,8 +84,8 @@ export class Renderer {
 
   setQuality(q) {
     this.quality = q;
-    const dpr = window.devicePixelRatio || 1;
-    this.renderer.setPixelRatio(Math.min(dpr, q === 'high' ? 2 : q === 'mid' ? 1.4 : 1));
+    this.resScale = this.resScale || 1;
+    this.applyPixelRatio();
     this.renderer.shadowMap.enabled = q === 'high';
     if (this.sunLight) this.sunLight.castShadow = q === 'high';
     this.setupComposer();
@@ -110,6 +110,20 @@ export class Renderer {
     this.grade = new ShaderPass(GradeShader);
     c.addPass(this.grade);
     this.composer = c;
+  }
+
+  applyPixelRatio() {
+    const dpr = window.devicePixelRatio || 1;
+    const q = this.quality;
+    this.renderer.setPixelRatio(Math.max(0.5, Math.min(dpr, q === 'high' ? 2 : q === 'mid' ? 1.4 : 1) * this.resScale));
+  }
+
+  // 자동 화질: 해상도 배율 조절
+  setResScale(k) {
+    this.resScale = clamp(k, 0.5, 1);
+    this.applyPixelRatio();
+    this.setupComposer();
+    this.resize();
   }
 
   resize() {
@@ -145,6 +159,7 @@ export class Renderer {
 
   // -------------------------------------------------------------------------
   loadTrack(track) {
+    if (this.inShowroom) this.exitShowroom();
     if (this.world) {
       this.scene.remove(this.world);
       this.dispose(this.world);
@@ -1189,6 +1204,134 @@ export class Renderer {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // 차고 쇼룸 (메뉴 배경): 턴테이블 위의 머신
+  buildShowroom() {
+    if (this.showroom) return;
+    const G = new THREE.Group();
+    G.visible = false;
+    const floor = new THREE.Mesh(new THREE.CircleGeometry(40, 64), new THREE.MeshStandardMaterial({ color: 0x0c0f13, roughness: 0.22, metalness: 0.6 }));
+    floor.rotation.x = -Math.PI / 2;
+    G.add(floor);
+    const table = new THREE.Mesh(new THREE.CylinderGeometry(4, 4, 0.08, 64), new THREE.MeshStandardMaterial({ color: 0x1b2027, roughness: 0.35, metalness: 0.7 }));
+    table.position.y = 0.04;
+    G.add(table);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(4.05, 0.035, 8, 96), new THREE.MeshBasicMaterial({ color: 0x1bb4ff }));
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = 0.08;
+    G.add(ring);
+    const wall = new THREE.Mesh(new THREE.CylinderGeometry(20, 20, 14, 64, 1, true), new THREE.MeshStandardMaterial({ color: 0x10141a, roughness: 0.9, side: THREE.BackSide }));
+    wall.position.y = 7;
+    G.add(wall);
+    // 세로 조명 스트립과 천장 조명
+    const stripM = new THREE.MeshBasicMaterial({ color: 0xbfe8ff });
+    for (let k = 0; k < 18; k++) {
+      const a = (k / 18) * Math.PI * 2;
+      const s = new THREE.Mesh(new THREE.BoxGeometry(0.25, 9, 0.25), stripM);
+      s.position.set(Math.cos(a) * 19.6, 5.5, Math.sin(a) * 19.6);
+      G.add(s);
+    }
+    const panelM = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    for (const [x, z, w, d] of [
+      [0, 0, 9, 2.2],
+      [0, -5, 9, 1.2],
+      [0, 5, 9, 1.2],
+    ]) {
+      const p = new THREE.Mesh(new THREE.PlaneGeometry(w, d), panelM);
+      p.rotation.x = Math.PI / 2;
+      p.position.set(x, 9, z);
+      G.add(p);
+    }
+    G.add(new THREE.HemisphereLight(0xbfd6ff, 0x0b0d10, 0.7));
+    const key = new THREE.SpotLight(0xffffff, 380, 40, 0.7, 0.5, 1.6);
+    key.position.set(4, 10, 6);
+    key.target.position.set(0, 0, 0);
+    G.add(key, key.target);
+    const rim = new THREE.SpotLight(0x7fd0ff, 260, 40, 0.8, 0.6, 1.6);
+    rim.position.set(-6, 6, -7);
+    rim.target.position.set(0, 0, 0);
+    G.add(rim, rim.target);
+    this.scene.add(G);
+    this.showroom = G;
+    // 쇼룸 전용 반사 환경
+    const rt = new THREE.WebGLCubeRenderTarget(128, { type: THREE.HalfFloatType });
+    const cam = new THREE.CubeCamera(0.5, 100, rt);
+    cam.position.set(0, 1.2, 0);
+    const wasWorld = this.world ? this.world.visible : false;
+    if (this.world) this.world.visible = false;
+    G.visible = true;
+    const fog = this.scene.fog;
+    this.scene.fog = null;
+    cam.update(this.renderer, this.scene);
+    this.scene.fog = fog;
+    G.visible = false;
+    if (this.world) this.world.visible = wasWorld;
+    const pm = new THREE.PMREMGenerator(this.renderer);
+    this.showroomEnv = pm.fromCubemap(rt.texture).texture;
+    pm.dispose();
+    rt.dispose();
+  }
+
+  enterShowroom(team, layout = 'home') {
+    this.buildShowroom();
+    this.inShowroom = true;
+    this.showroomLayout = layout;
+    if (this.world) this.world.visible = false;
+    this.showroom.visible = true;
+    this.savedFog = this.savedFog || this.scene.fog;
+    this.scene.fog = null;
+    this.scene.background = new THREE.Color(0x07090c);
+    this.scene.environment = this.showroomEnv;
+    if (this.flare) this.flare.visible = false;
+    this.clearCars();
+    const fake = { team, driver: { num: this.showNum || 1 }, compound: 'M', x: 0, z: 0, h: this.showroomAngle || 0.6, v: 0, steerAngle: 0.2, s: 0 };
+    const model = createCar(team, this.showroomEnv, { shadows: false, number: fake.driver.num, physical: this.quality !== 'low' });
+    model.car = fake;
+    model.root.position.y = 0.08;
+    this.scene.add(model.root);
+    this.carModels = [model];
+    this.showcaseCar = fake;
+  }
+
+  exitShowroom() {
+    if (!this.inShowroom) return;
+    this.inShowroom = false;
+    this.showroom.visible = false;
+    if (this.world) this.world.visible = true;
+    if (this.savedFog) this.scene.fog = this.savedFog;
+    this.savedFog = null;
+    this.scene.background = this.look ? new THREE.Color(this.look.fog) : null;
+    this.scene.environment = this.envMap || null;
+    if (this.flare) this.flare.visible = true;
+    this.clearCars();
+  }
+
+  updateShowroom(dt) {
+    const car = this.showcaseCar;
+    if (!car) return;
+    car.h += dt * 0.22;
+    this.showroomAngle = car.h;
+    const m = this.carModels[0];
+    if (m) {
+      m.root.position.set(0, 0.08, 0);
+      m.root.rotation.set(0, -car.h, 0);
+      for (const w of m.wheels) if (w.front) w.steer.rotation.y = -0.2;
+    }
+    const cam = this.camera;
+    cam.near = 0.1;
+    cam.fov = 38;
+    const t = performance.now() / 1000;
+    cam.position.set(7.4, 2.2 + Math.sin(t * 0.3) * 0.15, 4.2);
+    cam.lookAt(0, 0.55, 0);
+    const w = this.canvas.clientWidth;
+    const h = this.canvas.clientHeight;
+    const wide = w > 820 && h > 500;
+    if (this.showroomLayout === 'side' && wide) cam.setViewOffset(w, h, -w * 0.22, 0, w, h);
+    else if (this.showroomLayout === 'home') cam.setViewOffset(w, h, wide ? -w * 0.12 : 0, h * (wide ? 0.1 : 0.16), w, h);
+    else cam.clearViewOffset();
+    cam.updateProjectionMatrix();
+  }
+
   // 메뉴 배경 등에서 쓰는 전시용 차량
   showcase(team) {
     this.clearCars();
@@ -1314,6 +1457,21 @@ export class Renderer {
     this.followLight(pos);
   }
 
+  // 출발 전 소개 카메라: 낮은 앵글로 차량 옆을 훑는다
+  updateIntroCam(dt, car, t) {
+    const cam = this.camera;
+    if (cam.view && cam.view.enabled) cam.clearViewOffset();
+    const a = car.h + 1.2 - t * 0.35;
+    const r = 6.5 - t * 0.4;
+    cam.near = 0.2;
+    cam.position.set(car.x + Math.cos(a) * r, 0.9 + t * 0.12, car.z + Math.sin(a) * r);
+    cam.lookAt(car.x + Math.cos(car.h) * 1.2, 0.55, car.z + Math.sin(car.h) * 1.2);
+    cam.fov = 42;
+    cam.updateProjectionMatrix();
+    this.camYaw = car.h;
+    this.followLight(new THREE.Vector3(car.x, 0, car.z));
+  }
+
   // 메뉴용 궤도 카메라
   updateOrbit(dt, target, offset = true) {
     this.orbit += dt * 0.12;
@@ -1333,7 +1491,7 @@ export class Renderer {
   }
 
   followLight(pos) {
-    if (!this.sunLight) return;
+    if (!this.sunLight || !this.sky) return;
     this.sunLight.target.position.copy(pos);
     this.sunLight.position.copy(pos).addScaledVector(this.sunDir, 200);
     this.sky.position.copy(this.camera.position);

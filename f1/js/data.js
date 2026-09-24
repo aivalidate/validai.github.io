@@ -110,3 +110,38 @@ export const DIFFICULTY = [
 ];
 
 export const LAP_OPTIONS = [3, 5, 8, 12];
+
+// 차고 업그레이드 (RR3식 성능 등급 PR)
+export const UPGRADES = [
+  { id: 'power', name: '파워 유닛', desc: '최고 속도와 직선 가속' },
+  { id: 'aero', name: '에어로 패키지', desc: '고속 코너 그립' },
+  { id: 'brakes', name: '브레이크', desc: '제동 거리 단축' },
+  { id: 'chassis', name: '섀시·서스펜션', desc: '저속 코너 그립과 안정성' },
+  { id: 'gearbox', name: '기어박스', desc: '출발과 코너 탈출 가속' },
+];
+export const UPGRADE_COST = [8000, 16000, 28000, 45000, 70000];
+export const MAX_UPGRADE = UPGRADE_COST.length;
+
+export function carBoost(lv = {}) {
+  const g = (k) => lv[k] || 0;
+  return {
+    power: g('power') * 0.012 + g('gearbox') * 0.006,
+    grip: g('aero') * 0.009 + g('chassis') * 0.006,
+    brake: g('brakes') * 0.03,
+  };
+}
+
+export function carPR(team, lv = {}) {
+  const sum = UPGRADES.reduce((a, u) => a + (lv[u.id] || 0), 0);
+  return Math.round((60 + (team.perf - 0.96) * 500 + sum * 0.8) * 10) / 10;
+}
+
+// 이벤트별 권장 PR (AI 난이도 기준)
+export function recommendedPR(difficulty) {
+  return [64, 70, 76, 82][difficulty] || 70;
+}
+
+// 레벨: 명성 누적치
+export function fameForLevel(level) {
+  return 600 * level + 150 * level * level;
+}

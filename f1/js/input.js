@@ -56,34 +56,46 @@ export class Input {
     if (this.tilt != null) this.tiltZero = this.tilt;
   }
 
-  // 터치 조작 버튼 구성
+  // 터치 조작 구성 (RR3 방식): 기울기 / 화면 좌우 터치 / 버튼
   buildTouch(el, onAction) {
     const s = this.settings;
-    // 센서 값이 들어오지 않으면(권한 거부 등) 버튼 조향으로 대체
-    const tilt = s.steerMode === 'tilt' && this.tilt != null;
-    el.innerHTML = `
-      <div class="pad left">
-        ${tilt ? '' : '<div class="tb" data-k="left" aria-label="왼쪽">◀</div><div class="tb" data-k="right" aria-label="오른쪽">▶</div>'}
-      </div>
-      <div class="mid">
-        <div class="tb small" data-a="drs">DRS</div>
-      </div>
-      <div class="pad right">
-        <div class="tb brake" data-k="brake">BRAKE</div>
-        ${s.autoThrottle ? '' : '<div class="tb gas" data-k="gas">GAS</div>'}
-      </div>`;
-    el.classList.add('shift-hud');
+    let mode = s.steerMode;
+    // 센서 값이 들어오지 않으면(권한 거부, 미지원) 화면 좌우 터치로 대체
+    if (mode === 'tilt' && this.tilt == null) mode = 'zones';
+    this.activeTouchMode = mode;
+    const gas = s.autoThrottle ? '' : '<div class="tb pedal gas" data-k="gas">GAS</div>';
+    let html = '';
+    if (mode === 'zones') {
+      html = `<div class="zone l" data-k="left"><span class="ghost">◀</span></div><div class="zone r" data-k="right"><span class="ghost">▶</span></div>
+        <div class="pad center"><div class="tb pedal brake" data-k="brake">BRAKE</div>${gas}</div>`;
+    } else if (mode === 'tilt') {
+      html = `<div class="pad left"><div class="tb pedal brake" data-k="brake">BRAKE</div></div><div class="pad right">${gas}</div>`;
+    } else {
+      html = `<div class="pad left"><div class="tb" data-k="left" aria-label="왼쪽">◀</div><div class="tb" data-k="right" aria-label="오른쪽">▶</div></div>
+        <div class="pad right"><div class="tb pedal brake" data-k="brake">BRAKE</div>${gas}</div>`;
+    }
+    el.innerHTML = html + '<div class="mid"><div class="tb small" data-a="drs">DRS</div></div>';
+    el.classList.remove('lift-l', 'lift-r');
+    if (mode === 'buttons' || (mode === 'tilt' && !s.autoThrottle)) el.classList.add('lift-r');
+    if (mode === 'buttons' || mode === 'tilt') el.classList.add('lift-l');
+    Object.keys(this.touch).forEach((k) => (this.touch[k] = false));
     const bind = (node) => {
       const k = node.dataset.k;
       const a = node.dataset.a;
       const on = (e) => {
         e.preventDefault();
-        node.setPointerCapture && node.setPointerCapture(e.pointerId);
+        e.stopPropagation();
+        try {
+          node.setPointerCapture(e.pointerId);
+        } catch (err) {
+          /* 무시 */
+        }
         node.classList.add('active');
         if (k) this.touch[k] = true;
         if (a) onAction(a);
+        if (navigator.vibrate && a) navigator.vibrate(15);
       };
-      const off = (e) => {
+      const off = () => {
         node.classList.remove('active');
         if (k) this.touch[k] = false;
       };
@@ -92,7 +104,7 @@ export class Input {
       node.addEventListener('pointercancel', off);
       node.addEventListener('lostpointercapture', off);
     };
-    el.querySelectorAll('.tb').forEach(bind);
+    el.querySelectorAll('.tb, .zone').forEach(bind);
   }
 
   consume(code) {
@@ -120,10 +132,12 @@ export class Input {
     if (this.touch.gas) throttle = 1;
     if (this.touch.brake) brake = 1;
 
-    if (s.steerMode === 'tilt' && this.tilt != null) {
+    if ((this.activeTouchMode || s.steerMode) === 'tilt' && this.tilt != null) {
       const v = (this.tilt - this.tiltZero) * (s.tiltInvert ? -1 : 1);
-      analog = clamp((v / 28) * s.tiltSens, -1, 1);
-      if (Math.abs(analog) < 0.03) analog = 0;
+      // 약간의 데드존 후 비례 조향
+      const dz = 1.5;
+      const vv = Math.abs(v) < dz ? 0 : v - Math.sign(v) * dz;
+      analog = clamp((vv / 24) * (s.tiltSens || 1), -1, 1);
     }
 
     // 게임패드

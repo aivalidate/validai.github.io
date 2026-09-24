@@ -196,8 +196,10 @@ export class Session {
       const team = TEAMS.find((t) => t.id === drv.team);
       const car = makeCar(k, drv, team, !!drv.player);
       if (car.isPlayer) {
-        car.gripMult = team.perf;
-        car.powerMult = Math.pow(team.perf, 1.5);
+        const bst = o.playerBoost || { power: 0, grip: 0, brake: 0 };
+        car.gripMult = team.perf * (1 + bst.grip);
+        car.powerMult = Math.pow(team.perf, 1.5) * (1 + bst.power);
+        car.brakeMult = 1 + bst.brake;
         car.profile = computeProfile(track, car.gripMult, car.powerMult);
         this.player = car;
       } else {
@@ -283,7 +285,7 @@ export class Session {
 
     if (this.phase === 'grid') {
       this.phaseTimer += dt;
-      if (this.phaseTimer > 1.6) {
+      if (this.phaseTimer > (this.opts.introTime ?? 4)) {
         this.phase = 'lights';
         this.phaseTimer = 0;
         this.emit('lightsStart');
@@ -567,6 +569,7 @@ export class Session {
 
   lapDone(car, lt) {
     const valid = car.lapValid;
+    const prevBest = car.bestLap;
     car.lastLap = lt;
     car.lapTimes.push({ time: lt, valid, compound: car.compound });
     const pb = car.bestLap == null || lt < car.bestLap;
@@ -576,7 +579,7 @@ export class Session {
       this.fastest = { time: lt, car };
       overall = true;
     }
-    if (car.isPlayer) this.emit('lapTime', { time: lt, valid, pb: valid && pb, overall });
+    if (car.isPlayer) this.emit('lapTime', { time: lt, valid, pb: valid && pb, overall, prevBest });
     else if (overall && this.mode === 'race' && car.lap > 2) this.emit('fastestOther', { car, time: lt });
     if (car.isPlayer && this.mode === 'quali') {
       this.qualiLaps++;

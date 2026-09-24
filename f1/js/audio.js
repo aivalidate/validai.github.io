@@ -154,6 +154,10 @@ export class Sound {
     o.stop(t + dur + 0.02);
   }
 
+  click() {
+    this.beep(1400, 0.035, 0.08, 'triangle');
+  }
+
   thud(strength = 1) {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;

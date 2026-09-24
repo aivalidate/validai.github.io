@@ -423,7 +423,7 @@ function shadowTexture() {
 
 const teamMats = new Map();
 function materialsFor(team, envMap, physical) {
-  const key = team.id + (physical ? 'p' : '');
+  const key = team.id + (physical ? 'p' : '') + (envMap ? envMap.uuid : '');
   if (teamMats.has(key)) return teamMats.get(key);
   const Paint = physical ? THREE.MeshPhysicalMaterial : THREE.MeshStandardMaterial;
   const gloss = physical ? { clearcoat: 1, clearcoatRoughness: 0.06 } : {};

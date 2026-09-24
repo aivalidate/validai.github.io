@@ -4,11 +4,11 @@ import { Renderer } from './render.js';
 import { Hud } from './hud.js';
 import { Input, isTouch } from './input.js';
 import { Sound } from './audio.js';
-import { Menu } from './ui.js';
+import { Menu, prizeFor } from './ui.js';
 import { TRACKS, buildTrack } from './tracks.js';
 import { Session, simulateQuali, PLAYER_ID } from './race.js';
-import { TEAMS, DRIVERS, COMPOUNDS, teamById } from './data.js';
-import { storage, fmtTime, hexToRgb } from './util.js';
+import { TEAMS, DRIVERS, teamById, carBoost, fameForLevel, UPGRADE_COST, MAX_UPGRADE, UPGRADES } from './data.js';
+import { storage, fmtTime } from './util.js';
 
 const CALENDAR = ['albion', 'riviera', 'parco', 'sakura', 'maple', 'oasis'];
 
@@ -16,9 +16,10 @@ class App {
   constructor() {
     this.touch = isTouch();
     const defaults = {
-      steerMode: this.touch ? 'buttons' : 'keys',
+      steerMode: this.touch ? 'tilt' : 'keys',
       autoThrottle: this.touch,
       tiltInvert: false,
+      tiltSens: 1,
       brakeAssist: 1,
       steerAssist: this.touch,
       racingLine: 'brake',
@@ -26,12 +27,14 @@ class App {
       difficulty: 1,
       laps: 5,
       camera: 'chase',
-      quality: this.touch ? 'mid' : 'high',
+      quality: 'auto',
       sound: true,
     };
     this.settings = { ...defaults, ...storage.get('settings', {}) };
     this.profile = { name: '플레이어', code: 'PLY', team: 'taurus', ...storage.get('profile', {}) };
     this.career = storage.get('career', null);
+    this.wallet = { money: 20000, gold: 10, fame: 0, level: 1, ...storage.get('wallet', {}) };
+    this.upgrades = storage.get('upgrades', {});
     this.trackCache = {};
     this.canvas = document.getElementById('game');
     this.renderer = new Renderer(this.canvas);
@@ -44,7 +47,6 @@ class App {
     this.S = null;
     this.touchPress = {};
     this.applySettings();
-    this.applyAccent(this.profile.team);
 
     window.addEventListener('resize', () => {
       this.renderer.resize();
@@ -87,27 +89,97 @@ class App {
 
   applySettings() {
     const s = this.settings;
-    Object.assign(this.input.settings, { steerMode: this.touch ? s.steerMode : 'keys', autoThrottle: this.touch && s.autoThrottle, tiltInvert: s.tiltInvert });
-    if (this.renderer.quality !== s.quality) this.renderer.setQuality(s.quality);
+    Object.assign(this.input.settings, { steerMode: this.touch ? s.steerMode : 'keys', autoThrottle: this.touch && s.autoThrottle, tiltInvert: s.tiltInvert, tiltSens: s.tiltSens });
+    const q = s.quality === 'auto' ? (this.touch ? 'mid' : 'high') : s.quality;
+    this.autoQuality = s.quality === 'auto';
+    if (this.renderer.quality !== q) this.renderer.setQuality(q);
     this.renderer.camMode = s.camera;
     this.sound.setMuted(!s.sound);
     if (this.S) this.S.opts.assists = { brake: s.brakeAssist, steer: s.steerAssist, autoThrottle: this.touch && s.autoThrottle, autoDrs: s.autoDrs };
   }
 
-  applyAccent(teamId) {
-    const t = teamById(teamId) || TEAMS[0];
-    const lum = (hex) => {
-      const [r, g, b] = hexToRgb(hex).map((v) => v / 255);
-      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    };
-    const pick = [t.accent, t.trim, t.color].find((c) => lum(c) > 0.2 && lum(c) < 0.9) || '#e4202e';
-    document.documentElement.style.setProperty('--accent', pick);
-    document.documentElement.style.setProperty('--accent-ink', lum(pick) > 0.55 ? '#0d1116' : '#ffffff');
+  // 메뉴 배경: 차고 쇼룸
+  setBackdrop(layout, teamId) {
+    if (this.state !== 'menu') return;
+    const team = teamById(teamId) || TEAMS[0];
+    const R = this.renderer;
+    if (R.inShowroom && R.showcaseCar && R.showcaseCar.team === team) R.showroomLayout = layout;
+    else R.enterShowroom(team, layout);
   }
 
-  previewTeam(teamId) {
-    this.applyAccent(teamId);
-    this.renderer.showcase(teamById(teamId));
+  playerName() {
+    return this.weekend && this.weekend.career && this.career ? this.career.name : this.profile.name;
+  }
+
+  // ---------------------------------------------------------------------------
+  // 경제: R$, 골드, 명성, 업그레이드
+  saveWallet() {
+    storage.set('wallet', this.wallet);
+  }
+
+  upgradesFor(teamId) {
+    return this.upgrades[teamId] || {};
+  }
+
+  buyUpgrade(teamId, id) {
+    const lv = { ...this.upgradesFor(teamId) };
+    const l = lv[id] || 0;
+    if (l >= MAX_UPGRADE) return;
+    const cost = UPGRADE_COST[l];
+    if (this.wallet.money < cost) {
+      this.toast('R$가 부족해요. 레이스에서 상금을 모으세요');
+      return;
+    }
+    this.wallet.money -= cost;
+    lv[id] = l + 1;
+    this.upgrades[teamId] = lv;
+    storage.set('upgrades', this.upgrades);
+    this.saveWallet();
+    this.sound.beep(1180, 0.12, 0.2);
+    this.toast(`${UPGRADES.find((u) => u.id === id).name} ${l + 1}단계 업그레이드 완료`);
+  }
+
+  addFame(n) {
+    const w = this.wallet;
+    const before = w.level;
+    w.fame += n;
+    let gold = 0;
+    while (w.fame >= fameForLevel(w.level)) {
+      w.level++;
+      gold += 5;
+    }
+    w.gold += gold;
+    return { levelUp: w.level > before, gold };
+  }
+
+  fameProgress() {
+    const w = this.wallet;
+    const lvStart = w.level > 1 ? fameForLevel(w.level - 1) : 0;
+    return Math.min(1, (w.fame - lvStart) / (fameForLevel(w.level) - lvStart));
+  }
+
+  // RR3처럼 레이스가 끝나면 상금과 명성을 정산
+  computeRewards(res, S) {
+    const w = this.weekend || {};
+    const career = !!w.career;
+    const me = res.find((r) => r.car.isPlayer);
+    const items = [];
+    const prize = prizeFor(me.pos, S.laps, career);
+    items.push({ label: `P${me.pos} 상금`, money: prize });
+    if (w.pole) items.push({ label: '폴 포지션', money: 3000 });
+    if (S.fastest && S.fastest.car === me.car) items.push({ label: '최고 랩', money: 2000 });
+    if (this.raceImpacts === 0) items.push({ label: '클린 레이스 (벽 접촉 없음)', money: 2500 });
+    const gained = me.car.gridPos - me.pos;
+    if (gained > 0) items.push({ label: `추월 ${gained}계단`, money: gained * 400 });
+    if (me.pos === 1 && career) items.push({ label: '커리어 우승 보너스', money: 0, gold: 2 });
+    const moneySum = items.reduce((a, b) => a + b.money, 0);
+    const fame = Math.round((180 + Math.max(0, 21 - me.pos) * 22 + (S.laps - 3) * 25) * (career ? 1.5 : 1));
+    const prevProg = this.fameProgress();
+    this.wallet.money += moneySum;
+    this.wallet.gold += items.reduce((a, b) => a + (b.gold || 0), 0);
+    const lv = this.addFame(fame);
+    this.saveWallet();
+    return { items, money: moneySum, fame, prevProg, levelUp: lv.levelUp, levelGold: lv.gold };
   }
 
   toast(text) {
@@ -124,19 +196,17 @@ class App {
   }
 
   // ---------------------------------------------------------------------------
-  toMenu() {
+  toMenu(screen = 'home') {
     this.state = 'menu';
     this.paused = false;
     this.S = null;
     this.weekend = null;
     this.hud.show(false);
+    this.renderer.setGhost(null);
     document.getElementById('touch').hidden = true;
     document.getElementById('rotate').hidden = true;
-    if (!this.renderer.track) this.renderer.loadTrack(this.getTrack(this.career ? this.career.calendar[Math.min(this.career.round, 5)] : 'albion'));
-    this.renderer.showcase(teamById(this.career ? this.career.team : this.profile.team));
-    this.applyAccent(this.career ? this.career.team : this.profile.team);
-    this.menu.state = {};
-    this.menu.show('main');
+    this.menu.state = screen === 'career' && this.career ? { round: this.career.round } : {};
+    this.menu.show(screen);
     this.releaseWakeLock();
   }
 
@@ -156,7 +226,6 @@ class App {
       teamPoints,
     };
     storage.set('career', this.career);
-    this.applyAccent(team);
   }
 
   deleteCareer() {
@@ -164,17 +233,15 @@ class App {
     storage.remove('career');
   }
 
-  startWeekend({ trackId, teamId, quali, compound, career }) {
+  startWeekend({ trackId, teamId, quali, career }) {
     const c = career ? this.career : null;
     this.weekend = {
       trackId,
       teamId,
-      compound,
       career: !!career,
       laps: c ? c.laps : this.settings.laps,
       difficulty: c ? c.difficulty : this.settings.difficulty,
     };
-    this.applyAccent(teamId);
     if (quali) {
       this.startSession({ trackId, mode: 'quali', teamId, difficulty: this.weekend.difficulty });
     } else {
@@ -187,13 +254,12 @@ class App {
       const pos = career ? codes.length : 5 + Math.floor(Math.random() * 10);
       codes.splice(pos, 0, PLAYER_ID);
       this.weekend.grid = codes;
-      this.startRaceFromGrid(compound);
+      this.startRaceFromGrid();
     }
   }
 
-  startRaceFromGrid(compound) {
+  startRaceFromGrid() {
     const w = this.weekend;
-    w.compound = compound || w.compound;
     this.startSession({
       trackId: w.trackId,
       mode: 'race',
@@ -201,13 +267,13 @@ class App {
       grid: w.grid,
       laps: w.laps,
       difficulty: w.difficulty,
-      compound: w.compound,
     });
   }
 
   startSession(cfg) {
     this.lastCfg = cfg;
     const track = this.getTrack(cfg.trackId);
+    if (this.renderer.inShowroom) this.renderer.exitShowroom();
     if (this.renderer.track !== track) this.renderer.loadTrack(track);
     const career = this.weekend && this.weekend.career ? this.career : null;
     const s = this.settings;
@@ -221,7 +287,7 @@ class App {
       playerCode: career ? career.code : this.profile.code,
       playerNum: 1,
       grid: cfg.grid,
-      startCompound: cfg.compound || 'M',
+      playerBoost: carBoost(this.upgradesFor(cfg.teamId)),
       assists: { brake: s.brakeAssist, steer: s.steerAssist, autoThrottle: this.touch && s.autoThrottle, autoDrs: s.autoDrs },
     });
     if (cfg.auto) S.player.auto = true;
@@ -230,8 +296,14 @@ class App {
     this.renderer.camMode = s.camera;
     this.renderer.camPos.set(0, -999, 0);
     this.renderer.camYaw = S.player.h;
-    this.hud.start(S, track);
+    const w = this.weekend;
+    const intro =
+      cfg.mode === 'race'
+        ? { eyebrow: w && w.career ? `ROUND ${this.career.round + 1} · 결승` : '퀵 레이스 · 결승', title: track.name, text: `${S.laps}랩 · ${S.player.pos}번 그리드에서 출발` }
+        : null;
+    this.hud.start(S, track, intro);
     this.hud.show(true);
+    this.raceImpacts = 0;
     this.menu.hide();
     this.state = 'race';
     this.paused = false;
@@ -247,6 +319,7 @@ class App {
     if (this.touch) {
       this.input.buildTouch(touchEl, (a) => (this.touchPress[a] = true));
       if (s.steerMode === 'tilt') setTimeout(() => this.input.calibrateTilt(), 300);
+      this.tryFullscreen();
     }
     // 타임 트라이얼 고스트
     this.ghost = null;
@@ -284,7 +357,7 @@ class App {
     const m = this.renderer.cycleCamera();
     this.settings.camera = m;
     storage.set('settings', this.settings);
-    const names = { chase: '추격 카메라', far: '먼 추격 카메라', cockpit: '콕핏 카메라', tcam: 'T-캠' };
+    const names = { chase: '추격 카메라', far: '먼 추격 카메라', bumper: '범퍼 카메라', cockpit: '콕핏 카메라', tcam: 'T-캠' };
     this.hud.message(names[m], '', 1.0);
   }
 
@@ -296,11 +369,12 @@ class App {
     const ai = this.qualiAI(S);
     const list = ai.concat([{ id: PLAYER_ID, code: S.player.driver.code, time: S.player.bestLap ?? Infinity, player: true }]).sort((a, b) => a.time - b.time);
     w.grid = list.map((r) => r.id);
+    w.pole = list[0] && list[0].player && isFinite(list[0].time);
     this.state = 'interlude';
     this.hud.show(false);
     document.getElementById('touch').hidden = true;
-    this.menu.state = { compound: w.compound };
-    this.menu.show('grid', { list, track: S.track, teamId: w.teamId, compound: w.compound });
+    this.menu.state = {};
+    this.menu.show('grid', { list, track: S.track, teamId: w.teamId });
   }
 
   finishRace() {
@@ -319,10 +393,11 @@ class App {
       c.round++;
       storage.set('career', c);
     }
+    const rewards = this.computeRewards(res, S);
     this.state = 'interlude';
     this.hud.show(false);
     document.getElementById('touch').hidden = true;
-    this.menu.show('results', { res, S, career: !!(w && w.career) });
+    this.menu.show('results', { res, S, career: !!(w && w.career), rewards });
     this.releaseWakeLock();
   }
 
@@ -356,6 +431,7 @@ class App {
     for (const e of S.events) {
       switch (e.type) {
         case 'lightsStart':
+          hud.hideIntro();
           hud.setLights(0);
           break;
         case 'light':
@@ -367,12 +443,15 @@ class App {
           hud.message('GO!', '', 1.2, 3);
           snd.beep(1240, 0.4, 0.28);
           break;
-        case 'sector':
-          hud.sector(e.k, e.color);
+        case 'sector': {
+          const soFar = P.curSectors.slice(0, e.k + 1).reduce((a, b) => a + (b || 0), 0);
+          hud.sector(e.k, e.color, P.lap >= 2 || S.mode !== 'race' ? soFar : null);
           break;
+        }
         case 'lapTime': {
           const col = !e.valid ? '무효' : e.overall ? '전체 최고 기록' : e.pb ? '개인 최고 기록' : '';
           hud.message(fmtTime(e.time), col, 2.4, 2);
+          hud.lapDone(e.time, e.valid, e.prevBest);
           if (e.valid && e.overall) snd.beep(990, 0.15, 0.2);
           if (S.mode === 'tt' && e.valid) this.saveGhost(e.time);
           if (S.mode === 'quali' && S.qualiLaps >= 3) this.qualiEndTimer = 2.5;
@@ -395,6 +474,7 @@ class App {
           snd.beep(1500, 0.08, 0.15, 'square');
           break;
         case 'impact':
+          this.raceImpacts++;
           snd.thud(Math.min(3, e.v / 12));
           this.renderer.shake = Math.min(1.2, e.v / 15);
           this.renderer.sparks(e.car, Math.min(40, 6 + e.v * 2));
@@ -438,7 +518,10 @@ class App {
     if (best && best.time <= time) return;
     const data = { time, team: S.player.team.id, ghost: this.prevRec || [] };
     storage.set('tt.' + S.track.id, data);
-    if (best) this.hud.message(fmtTime(time), `베스트 경신 (-${(best.time - time).toFixed(3)})`, 2.6, 3);
+    this.wallet.money += 3000;
+    this.addFame(60);
+    this.saveWallet();
+    this.hud.message(fmtTime(time), best ? `베스트 경신 (-${(best.time - time).toFixed(3)}) · +R$ 3,000` : '첫 기록 · +R$ 3,000', 2.6, 3);
     this.ghost = data;
     this.renderer.setGhost(S.player.team);
   }
@@ -533,7 +616,8 @@ class App {
       if (this.state === 'race') {
         R.updateCars(dt, S);
         R.setLights(S.lights);
-        R.updateCamera(dt, S.player);
+        if (S.mode === 'race' && S.phase === 'grid') R.updateIntroCam(dt, S.player, S.phaseTimer);
+        else R.updateCamera(dt, S.player);
         R.updateRacingLine(S.player, this.settings.racingLine);
         this.hud.update(dt, S, R, { camMode: R.camMode, qualiRank: S.mode === 'quali' ? this.qualiRank(S) : null });
       }
@@ -547,14 +631,39 @@ class App {
       R.updateRacingLine(null, 'off');
       this.sound.update(null, null, false);
     } else {
-      if (R.showcaseCar) {
-        R.updateCars(dt, null);
-        R.updateOrbit(dt, R.showcaseCar);
-      }
+      if (R.inShowroom) R.updateShowroom(dt);
       this.sound.update(null, null, false);
     }
     R.render(dt);
+    this.adaptQuality(now);
     requestAnimationFrame((t) => this.loop(t));
+  }
+
+  // 프레임이 느리면 해상도를 낮추고, 여유가 있으면 다시 올린다
+  adaptQuality(now) {
+    if (!this.autoQuality || document.hidden) return;
+    this.frames = (this.frames || 0) + 1;
+    if (!this.fpsT) this.fpsT = now;
+    if (now - this.fpsT < 2000) return;
+    const fps = (this.frames * 1000) / (now - this.fpsT);
+    this.frames = 0;
+    this.fpsT = now;
+    const R = this.renderer;
+    if (fps < 42 && R.resScale > 0.55) R.setResScale(R.resScale - 0.12);
+    else if (fps > 57 && R.resScale < 1) R.setResScale(R.resScale + 0.06);
+  }
+
+  tryFullscreen() {
+    const el = document.documentElement;
+    if (document.fullscreenElement || !el.requestFullscreen) return;
+    el.requestFullscreen({ navigationUI: 'hide' })
+      .then(() => screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(() => {}))
+      .catch(() => {});
+  }
+
+  toggleFullscreen() {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    else this.tryFullscreen();
   }
 
   resetCar(S) {
@@ -585,10 +694,10 @@ class App {
     this.timeScale = +(params.get('ts') || 1);
     if (params.get('quality')) this.settings.quality = params.get('quality');
     this.applySettings();
-    this.weekend = { trackId, teamId: 'taurus', compound: 'S', career: false, laps: +(params.get('laps') || 2), difficulty: 1 };
+    this.weekend = { trackId, teamId: 'taurus', career: false, laps: +(params.get('laps') || 2), difficulty: 1 };
     const codes = DRIVERS.filter((d) => d.code !== 'ORT').map((d) => d.code);
     codes.splice(+(params.get('grid') || 6), 0, PLAYER_ID);
-    this.startSession({ trackId, mode, teamId: 'taurus', grid: codes, laps: this.weekend.laps, difficulty: 1, compound: 'S', auto: params.get('auto') !== '0' });
+    this.startSession({ trackId, mode, teamId: 'taurus', grid: codes, laps: this.weekend.laps, difficulty: 1, auto: params.get('auto') !== '0' });
     window.__app = this;
   }
 }

@@ -67,7 +67,7 @@ export function stepPlayer(car, ctl, dt, track, env) {
     a += ctl.throttle * Math.min(trac, eng);
   }
   if (ctl.brake > 0) {
-    if (v > 0.3) a -= ctl.brake * gripAccel(av, CAR.muBrake * grip);
+    if (v > 0.3) a -= ctl.brake * gripAccel(av, CAR.muBrake * grip) * (car.brakeMult || 1);
     else if (ctl.throttle < 0.1) a -= ctl.brake * 5; // 후진
   }
   if (ctl.throttle > 0 && v < -0.3) a += ctl.throttle * 8; // 후진 중 가속 = 제동

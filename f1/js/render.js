@@ -5,41 +5,58 @@ import * as TX from './textures.js';
 import { createCar, setCarCompound, resetCarMaterials } from './carmodel.js';
 import { clamp, lerp, rng, wrapAngle, wrapDist } from './util.js';
 import { brakeAccel, TEAMS } from './data.js';
+import { Lensflare, LensflareElement } from 'three/addons/objects/Lensflare.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+
+// 색 보정 + 비네트 (RR3 느낌의 선명한 톤)
+const GradeShader = {
+  uniforms: { tDiffuse: { value: null }, vignette: { value: 0.3 }, saturation: { value: 1.18 }, contrast: { value: 1.1 } },
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float vignette; uniform float saturation; uniform float contrast; varying vec2 vUv;
+    void main(){ vec4 c = texture2D(tDiffuse, vUv); float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+      c.rgb = mix(vec3(l), c.rgb, saturation); c.rgb = (c.rgb - 0.5) * contrast + 0.5;
+      vec2 d = vUv - 0.5; c.rgb *= 1.0 - vignette * dot(d, d) * 1.8; gl_FragColor = c; }`,
+};
 
 const LOOKS = {
   meadow: {
-    skyTop: '#3d78c7', horizon: '#d3e4ef', bottom: '#71906a', fog: '#cddfeb', fogNear: 300, fogFar: 2800,
+    skyTop: '#1f63c9', horizon: '#b6d3ee', bottom: '#71906a', fog: '#b9cfe2', fogNear: 300, fogFar: 2800,
     sun: [0.45, 0.75, 0.35], sunColor: '#fff2da', sunI: 2.6, hemiSky: '#d4e8ff', hemiGround: '#6d7560', hemiI: 1.1,
-    ground: 'grass', g1: '#4a7a34', g2: '#53843d', trees: 950, treeCols: ['#2e5a2a', '#3b6b2f', '#2a4f28', '#446f33'], hills: '#7d97a8',
+    ground: 'grass', g1: '#4a7a34', g2: '#53843d', trees: 1900, treeKinds: ['oak', 'oak', 'pine'], treeCols: ['#2e5a2a'], hills: '#7d97a8', backdrop: 'hills',
   },
   riviera: {
-    skyTop: '#2f7fd8', horizon: '#dbe9f3', bottom: '#8d9aa3', fog: '#d6e4ee', fogNear: 280, fogFar: 2400,
+    skyTop: '#1766d4', horizon: '#bcd8f0', bottom: '#8d9aa3', fog: '#bcd2e6', fogNear: 280, fogFar: 2400,
     sun: [-0.35, 0.8, 0.45], sunColor: '#fff4e0', sunI: 2.8, hemiSky: '#dcecff', hemiGround: '#8a8478', hemiI: 1.15,
-    ground: 'city', city: true, sea: true, hills: '#8aa0ae',
+    ground: 'city', city: true, sea: true, hills: '#8aa0ae', backdrop: 'city', palmsCity: 80,
   },
   park: {
-    skyTop: '#4b83c9', horizon: '#d9e6ec', bottom: '#6d8b5f', fog: '#d2e0e8', fogNear: 250, fogFar: 2500,
+    skyTop: '#2a68c4', horizon: '#bdd4ea', bottom: '#6d8b5f', fog: '#bacfdf', fogNear: 250, fogFar: 2500,
     sun: [0.3, 0.7, -0.5], sunColor: '#fff0d0', sunI: 2.5, hemiSky: '#d8e8ff', hemiGround: '#6b735c', hemiI: 1.1,
-    ground: 'grass', g1: '#4c7c33', g2: '#56873b', trees: 1700, treeCols: ['#2d5b26', '#3f6d2c', '#5c7a2a', '#7b8b33', '#2b4d22'], hills: '#7f98a6',
+    ground: 'grass', g1: '#4c7c33', g2: '#56873b', trees: 3000, treeKinds: ['oak', 'oak', 'autumn', 'pine'], treeCols: ['#2d5b26'], hills: '#7f98a6', backdrop: 'hills',
   },
   sakura: {
-    skyTop: '#5a8fd6', horizon: '#e8edf3', bottom: '#7d9a70', fog: '#e3e9ef', fogNear: 250, fogFar: 2400,
+    skyTop: '#3a74cf', horizon: '#cfdced', bottom: '#7d9a70', fog: '#c6d6e6', fogNear: 250, fogFar: 2400,
     sun: [0.5, 0.65, 0.4], sunColor: '#fff4e6', sunI: 2.5, hemiSky: '#e6efff', hemiGround: '#707862', hemiI: 1.15,
-    ground: 'grass', g1: '#557f3a', g2: '#5e8a42', trees: 1200, treeCols: ['#f2b8c8', '#e89ab2', '#f7cdd8', '#3b6b2f', '#2f5a2a'], sakura: true, hills: '#8e9fb4',
+    ground: 'grass', g1: '#557f3a', g2: '#5e8a42', trees: 2200, treeKinds: ['sakura', 'sakura', 'oak', 'pine'], treeCols: ['#f2b8c8'], sakura: true, hills: '#8e9fb4', backdrop: 'hills',
   },
   desert: {
     skyTop: '#060a1c', horizon: '#2a2440', bottom: '#1a1410', fog: '#1c1a2a', fogNear: 250, fogFar: 2200,
     sun: [0.2, 0.9, 0.3], sunColor: '#fff6e8', sunI: 1.5, hemiSky: '#a9b8e0', hemiGround: '#6b5a44', hemiI: 1.25,
-    ground: 'sand', night: true, palms: 120, floodlights: true, hills: '#2a2638',
+    ground: 'sand', night: true, palms: 160, floodlights: true, hills: '#2a2638', backdrop: 'dunes',
   },
   island: {
-    skyTop: '#3f86d6', horizon: '#d8e6ef', bottom: '#5a7f8f', fog: '#d4e3ec', fogNear: 280, fogFar: 2600,
+    skyTop: '#1e6ad0', horizon: '#b8d4ec', bottom: '#5a7f8f', fog: '#b8cee2', fogNear: 280, fogFar: 2600,
     sun: [-0.4, 0.75, -0.35], sunColor: '#fff3dc', sunI: 2.6, hemiSky: '#d9ebff', hemiGround: '#6a7460', hemiI: 1.1,
-    ground: 'water', island: true, trees: 700, treeCols: ['#2f5a2a', '#3d6a2f', '#c0622b', '#d98c2b', '#2a4f28'], hills: '#7c96a7',
+    ground: 'water', island: true, trees: 1400, treeKinds: ['oak', 'autumn', 'autumn', 'pine'], treeCols: ['#2f5a2a'], hills: '#7c96a7', backdrop: 'city',
   },
 };
 
-const CAM_MODES = ['chase', 'far', 'cockpit', 'tcam'];
+const CAM_MODES = ['chase', 'far', 'bumper', 'cockpit', 'tcam'];
 
 export class Renderer {
   constructor(canvas) {
@@ -71,13 +88,38 @@ export class Renderer {
     this.renderer.setPixelRatio(Math.min(dpr, q === 'high' ? 2 : q === 'mid' ? 1.4 : 1));
     this.renderer.shadowMap.enabled = q === 'high';
     if (this.sunLight) this.sunLight.castShadow = q === 'high';
+    this.setupComposer();
     this.resize();
+  }
+
+  // 후처리: 블룸 + 색 보정 (낮음 품질에서는 생략)
+  setupComposer() {
+    if (this.composer) {
+      this.composer.renderTarget1.dispose();
+      this.composer.renderTarget2.dispose();
+      this.composer = null;
+    }
+    if (this.quality === 'low') return;
+    const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+    const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: this.quality === 'high' ? 4 : 2 });
+    const c = new EffectComposer(this.renderer, rt);
+    c.addPass(new RenderPass(this.scene, this.camera));
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x / 2, size.y / 2), 0.2, 0.3, 1.05);
+    c.addPass(this.bloom);
+    c.addPass(new OutputPass());
+    this.grade = new ShaderPass(GradeShader);
+    c.addPass(this.grade);
+    this.composer = c;
   }
 
   resize() {
     const w = this.canvas.clientWidth || window.innerWidth;
     const h = this.canvas.clientHeight || window.innerHeight;
     this.renderer.setSize(w, h, false);
+    if (this.composer) {
+      this.composer.setPixelRatio(this.renderer.getPixelRatio());
+      this.composer.setSize(w, h);
+    }
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
   }
@@ -131,11 +173,11 @@ export class Renderer {
       fragmentShader: `uniform vec3 top; uniform vec3 horizon; uniform vec3 bottom; uniform vec3 sunDir; uniform vec3 sunColor; uniform float night; varying vec3 vDir;
         float hash(vec3 p){ return fract(sin(dot(p, vec3(12.9898,78.233,45.164)))*43758.5453); }
         void main(){ vec3 d = normalize(vDir); float h = d.y; vec3 c;
-          if (h > 0.0) c = mix(horizon, top, pow(clamp(h,0.0,1.0), 0.55)); else c = mix(horizon, bottom, clamp(-h*6.0,0.0,1.0));
+          if (h > 0.0) c = mix(horizon, top, pow(clamp(h,0.0,1.0), 0.42)); else c = mix(horizon, bottom, clamp(-h*6.0,0.0,1.0));
           float s = max(dot(d, normalize(sunDir)), 0.0);
           c += sunColor * (pow(s, 900.0) * (night > 0.5 ? 0.8 : 3.0) + pow(s, 14.0) * (night > 0.5 ? 0.05 : 0.22));
           if (night > 0.5 && h > 0.05) { vec3 q = floor(d * 380.0); float st = step(0.9965, hash(q)); c += vec3(st) * 0.9 * clamp(h*3.0, 0.0, 1.0); }
-          gl_FragColor = vec4(c, 1.0);
+          gl_FragColor = vec4(c * (night > 0.5 ? 1.0 : 1.45), 1.0);
           #include <colorspace_fragment>
         }`,
       side: THREE.BackSide,
@@ -158,7 +200,7 @@ export class Renderer {
     this.envMap = pm.fromScene(envScene, 0.02).texture;
     pm.dispose();
 
-    this.scene.fog = new THREE.Fog(look.fog, look.fogNear, look.fogFar);
+    this.scene.fog = new THREE.Fog(look.fog, look.fogNear * (look.night ? 1 : 1.8), look.fogFar * (look.night ? 1 : 1.35));
     this.scene.background = new THREE.Color(look.fog);
 
     const hemi = new THREE.HemisphereLight(look.hemiSky, look.hemiGround, look.hemiI);
@@ -188,8 +230,201 @@ export class Renderer {
     this.buildStart(track, look);
     this.buildGrandstands(track, look);
     this.buildScenery(track, look);
+    this.buildTrackside(track, look);
+    this.buildSkyDecor(track, look);
     this.buildRacingLine(track);
     this.buildParticles();
+    this.bakeReflections(track);
+  }
+
+  // 출발선 근처 풍경을 큐브맵으로 찍어 차량/노면 반사에 사용
+  bakeReflections(track) {
+    try {
+      const rt = new THREE.WebGLCubeRenderTarget(this.quality === 'low' ? 64 : 256, { type: THREE.HalfFloatType });
+      const cam = new THREE.CubeCamera(1, 4000, rt);
+      const p = track.pointAt(-80, 0);
+      cam.position.set(p.x, 3, p.z);
+      this.sky.position.copy(cam.position);
+      if (this.flare) this.flare.visible = false;
+      cam.update(this.renderer, this.scene);
+      if (this.flare) this.flare.visible = true;
+      const pm = new THREE.PMREMGenerator(this.renderer);
+      const env = pm.fromCubemap(rt.texture).texture;
+      pm.dispose();
+      rt.dispose();
+      if (this.envMap) this.envMap.dispose();
+      this.envMap = env;
+      this.scene.environment = env;
+      this.scene.environmentIntensity = 0.45;
+    } catch (e) {
+      this.scene.environment = this.envMap;
+    }
+  }
+
+  // 구름, 원경 실루엣, 태양 렌즈 플레어
+  buildSkyDecor(track, look) {
+    const b = track.bounds;
+    const cx = (b.minX + b.maxX) / 2;
+    const cz = (b.minZ + b.maxZ) / 2;
+    const rad = Math.max(b.maxX - b.minX, b.maxZ - b.minZ) / 2 + 1500;
+    const R = rng(track.N + 17);
+    const fogC = new THREE.Color(look.fog);
+    const layer = (kind, color, radius, height, rep, seed) => {
+      const tex = TX.backdrop(kind, color, seed);
+      tex.repeat.set(rep, 1);
+      const g = new THREE.CylinderGeometry(radius, radius, height, 64, 1, true);
+      const m = new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.BackSide, fog: false, depthWrite: false });
+      const mesh = new THREE.Mesh(g, m);
+      mesh.position.set(cx, height / 2 - 12, cz);
+      mesh.renderOrder = -5;
+      this.world.add(mesh);
+    };
+    const hazy = (hex, k) => '#' + new THREE.Color(hex).lerp(fogC, k).getHexString();
+    if (look.backdrop) {
+      if (look.backdrop === 'city') layer('city', hazy(look.night ? '#141824' : '#7d8a98', 0.35), rad + 600, 260, 3, 3);
+      layer(look.backdrop === 'dunes' ? 'dunes' : 'hills', hazy(look.hills, look.night ? 0.2 : 0.45), rad + 900, 420, 2, 5);
+      if (!look.night && look.backdrop !== 'city') layer('trees', hazy('#35502f', 0.25), rad, 150, 6, 9);
+    }
+    if (!look.night) {
+      const cm = [0, 1, 2].map((k) => new THREE.SpriteMaterial({ map: TX.cloud(k + 1), transparent: true, fog: false, depthWrite: false, opacity: 0.9 }));
+      for (let k = 0; k < 22; k++) {
+        const a = R() * Math.PI * 2;
+        const d = 1400 + R() * 2200;
+        const sp = new THREE.Sprite(cm[k % 3]);
+        sp.position.set(cx + Math.cos(a) * d, 380 + R() * 500, cz + Math.sin(a) * d);
+        const s = 500 + R() * 700;
+        sp.scale.set(s, s * 0.45, 1);
+        sp.renderOrder = -6;
+        this.world.add(sp);
+      }
+      if (this.quality !== 'low') {
+        const lf = new Lensflare();
+        lf.addElement(new LensflareElement(TX.flare(0), 420, 0, new THREE.Color(1, 0.96, 0.9)));
+        lf.addElement(new LensflareElement(TX.flare(1), 60, 0.6));
+        lf.addElement(new LensflareElement(TX.flare(1), 90, 0.75));
+        lf.addElement(new LensflareElement(TX.flare(1), 140, 0.95));
+        this.flare = lf;
+        this.world.add(lf);
+      } else this.flare = null;
+    } else this.flare = null;
+  }
+
+  // 제동 거리 표지판, 마셜 포스트, 광고 브리지
+  buildTrackside(track, look) {
+    const H = track.half;
+    const L = track.L;
+    const N = track.N;
+    const prof = track.profile;
+    const pit = track.pit;
+    const runAt = (i, side) => (side > 0 ? track.runR[i] : track.runL[i]);
+    // 제동 구간 찾기: 속도가 크게 떨어지는 코너의 정점
+    const corners = [];
+    for (let i = 0; i < N; i++) {
+      const a = prof[(i - 1 + N) % N];
+      const c = prof[(i + 1) % N];
+      if (prof[i] <= a && prof[i] < c) {
+        let maxV = prof[i];
+        for (let k = 1; k < 160; k++) maxV = Math.max(maxV, prof[(i - k + N) % N]);
+        if (maxV - prof[i] > 22) corners.push(i);
+      }
+    }
+    const boardMats = [100, 200, 300].map((n) => new THREE.MeshLambertMaterial({ map: TX.distanceBoard(n), side: THREE.DoubleSide }));
+    const postMat = this.mat({ color: 0x2a2d33 });
+    const boardGeo = new THREE.PlaneGeometry(1.4, 1.4);
+    const postGeo = new THREE.BoxGeometry(0.12, 2.2, 0.12);
+    postGeo.translate(0, 1.1, 0);
+    for (const ci of corners) {
+      const apexS = ci * track.ds;
+      const turnIn = apexS - 40;
+      const side = track.curv[ci] > 0 ? -1 : 1;
+      [100, 200, 300].forEach((dist, k) => {
+        const s = turnIn - dist;
+        const r = wrapDist(s, L);
+        if (r > pit.entry - 20 && r < pit.exit + 20) return;
+        const i = track.idx(s);
+        if (Math.abs(track.curv[i]) > 1 / 300) return;
+        const off = side * (H + Math.min(runAt(i, side) - 0.8, 6));
+        const p = track.pointAt(s, off);
+        const h = track.head[i];
+        const bm = new THREE.Mesh(boardGeo, boardMats[k]);
+        bm.position.set(p.x, 2.6, p.z);
+        bm.rotation.y = Math.atan2(-Math.cos(h), -Math.sin(h));
+        this.world.add(bm);
+        const po = new THREE.Mesh(postGeo, postMat);
+        po.position.set(p.x, 0, p.z);
+        this.world.add(po);
+      });
+    }
+    // 마셜 포스트
+    const bodyM = this.mat({ color: 0xf2f2ee });
+    const bandM = this.mat({ color: 0xff7a18 });
+    const hutGeo = new THREE.BoxGeometry(2.2, 2.4, 2.2);
+    hutGeo.translate(0, 1.2, 0);
+    const bandGeo = new THREE.BoxGeometry(2.3, 0.4, 2.3);
+    bandGeo.translate(0, 2.3, 0);
+    const posts = [];
+    for (let s = 150, k = 0; s < L - 150; s += 320, k++) {
+      const r = wrapDist(s, L);
+      if (r > pit.entry - 60 && r < pit.exit + 60) continue;
+      const side = k % 2 ? 1 : -1;
+      const i = track.idx(s);
+      const clear = side > 0 ? track.clearR[i] : track.clearL[i];
+      const off = H + runAt(i, side) + 2.5;
+      if (clear < off * 2 + 6) continue;
+      posts.push({ p: track.pointAt(s, side * off), h: track.head[i] });
+    }
+    const hI = new THREE.InstancedMesh(hutGeo, bodyM, Math.max(1, posts.length));
+    const bI = new THREE.InstancedMesh(bandGeo, bandM, Math.max(1, posts.length));
+    const m4 = new THREE.Matrix4();
+    posts.forEach(({ p, h }, k) => {
+      m4.makeRotationY(-h);
+      m4.setPosition(p.x, 0, p.z);
+      hI.setMatrixAt(k, m4);
+      bI.setMatrixAt(k, m4);
+    });
+    hI.count = bI.count = posts.length;
+    this.world.add(hI, bI);
+    // 광고 브리지: 긴 직선 중간
+    const adTex = TX.adBoards();
+    adTex.repeat.set(0.5, 1);
+    const adM = this.mat({ map: adTex });
+    const steel = this.mat({ color: 0x3a3f47 });
+    let bridges = 0;
+    let runStart = -1;
+    for (let k = 0; k <= N * 1.2 && bridges < 3; k++) {
+      const i = k % N;
+      const straight = Math.abs(track.curv[i]) < 1 / 1200;
+      if (straight && runStart < 0) runStart = k;
+      if (!straight && runStart >= 0) {
+        const len = (k - runStart) * track.ds;
+        if (len > 300) {
+          const s = ((runStart + k) / 2) * track.ds;
+          const r = wrapDist(s, L);
+          if (!(r > pit.entry - 150 && r < pit.exit + 150)) {
+            const ii = track.idx(s);
+            const wL = H + Math.min(runAt(ii, -1), 14) + 1;
+            const wR = H + Math.min(runAt(ii, 1), 14) + 1;
+            const p = track.pointAt(s, (wR - wL) / 2);
+            const g = new THREE.Group();
+            g.position.set(p.x, 0, p.z);
+            g.rotation.y = -track.head[ii];
+            const span = wL + wR;
+            const beam = new THREE.Mesh(new THREE.BoxGeometry(1.2, 2.2, span + 1), [steel, steel, steel, steel, adM, adM]);
+            beam.position.set(0, 8, 0);
+            beam.rotation.y = Math.PI / 2;
+            g.add(beam);
+            for (const z of [-span / 2, span / 2]) {
+              const col = new THREE.Mesh(new THREE.BoxGeometry(0.8, 9, 0.8), steel);
+              col.position.set(0, 4.5, z);
+              g.add(col);
+            }
+            this.world.add(g);
+            bridges++;
+          }
+        }
+        runStart = -1;
+      }
+    }
   }
 
   mat(opts, shadowRecv = true) {
@@ -319,8 +554,32 @@ export class Renderer {
     const N = track.N;
     const H = track.half;
     const asphalt = this.texAniso(TX.asphalt(look.night ? '#34363a' : '#3a3d41'));
-    const trackMat = this.mat({ map: asphalt });
+    const trackMat = new THREE.MeshStandardMaterial({ map: asphalt, roughness: 0.86, metalness: 0.0, envMapIntensity: 0.5 });
     this.mesh(this.strip(0, N, () => [-H, 0], () => [H, 0], 14), trackMat);
+
+    // 레이싱 라인 러버와 제동 구간 스키드 자국 (곱셈 블렌딩)
+    const rg = this.strip(0, N, (i) => [track.off[i] - 1.7, 0.012], (i) => [track.off[i] + 1.7, 0.012], 18);
+    const rc = new Float32Array((N + 1) * 6);
+    const prof = track.profile;
+    for (let k = 0; k <= N; k++) {
+      const i = k % N;
+      const dv = prof[(i - 3 + N) % N] - prof[(i + 3) % N];
+      const brake = clamp(dv / 6, 0, 1);
+      const g = 0.86 - brake * 0.3;
+      rc.set([g, g, g, g, g, g], k * 6);
+    }
+    rg.setAttribute('color', new THREE.BufferAttribute(rc, 3));
+    const rubberMat = new THREE.MeshBasicMaterial({ map: TX.rubber(), vertexColors: true, blending: THREE.MultiplyBlending, premultipliedAlpha: true, transparent: true, depthWrite: false, fog: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+    const rm0 = this.mesh(rg, rubberMat, false);
+    rm0.renderOrder = 1;
+
+    // 연석 바깥 녹색 페인트 런오프
+    if (track.runoffType !== 'asphalt') {
+      const pm = this.mat({ map: this.texAniso(TX.painted('#3e8a3c'), 1, 1), polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+      for (const [i0, n] of this.runs(track.kerb)) {
+        for (const side of [1, -1]) this.mesh(this.strip(i0, n, () => [side * (H + 1.3), -0.005], () => [side * (H + 3), -0.005], 4), pm);
+      }
+    }
 
     // 연석
     const kerbMat = this.mat({ map: this.texAniso(TX.kerb()) });
@@ -403,10 +662,13 @@ export class Renderer {
     } else {
       const adm = this.mat({ map: this.texAniso(TX.adBoards(), 1, 1), side: THREE.DoubleSide });
       const tm = this.mat({ map: this.texAniso(TX.tyreWall(), 1, 1), side: THREE.DoubleSide });
+      const fm = new THREE.MeshLambertMaterial({ map: TX.fence(), transparent: true, alphaTest: 0.3, side: THREE.DoubleSide, depthWrite: false });
       for (const side of [1, -1]) {
         const w = (i) => side * (H + (side > 0 ? track.runR[i] : track.runL[i]));
         this.mesh(this.strip(0, N, (i) => [w(i), 0], (i) => [w(i), 0.55], 4, true), tm);
         this.mesh(this.strip(0, N, (i) => [w(i) + side * 0.35, 0.55], (i) => [w(i) + side * 0.35, 1.35], 60, true), adm);
+        const f = this.mesh(this.strip(0, N, (i) => [w(i) + side * 0.6, 1.35], (i) => [w(i) + side * 0.9, 4.2], 3, true), fm, false);
+        f.renderOrder = 3;
       }
     }
   }
@@ -521,9 +783,11 @@ export class Renderer {
   buildGrandstands(track, look) {
     const pit = track.pit;
     const side = -pit.side;
-    const crowdTex = TX.crowd();
-    crowdTex.repeat.set(4, 1);
+    const crowdTex = TX.seats('#2c5fb8');
+    crowdTex.repeat.set(4, 2);
     const seat = this.mat({ map: crowdTex, side: THREE.DoubleSide });
+    const banner = this.mat({ map: TX.adBoards() });
+    banner.map.repeat.set(0.3, 1);
     const roof = this.mat({ color: look.night ? 0x3a3f47 : 0xe8ebef, emissive: look.night ? 0x111317 : 0x4a4f57, side: THREE.DoubleSide });
     const frame = this.mat({ color: 0x5a616b });
     const len = 44;
@@ -551,6 +815,14 @@ export class Renderer {
       rf.position.set(0, depth * 0.62 + 5.5, sideSign * (depth / 2 + 0.5));
       rf.rotation.x = sideSign * 0.08;
       g.add(rf);
+      const bn = new THREE.Mesh(new THREE.BoxGeometry(len, 1.2, 0.2), banner);
+      bn.position.set(0, 0.6, sideSign * 0.2);
+      g.add(bn);
+      for (let x = -len / 2 + 2; x <= len / 2 - 2; x += (len - 4) / 3) {
+        const colm = new THREE.Mesh(new THREE.BoxGeometry(0.35, depth * 0.62 + 5.5, 0.35), frame);
+        colm.position.set(x, (depth * 0.62 + 5.5) / 2, sideSign * 1.2);
+        g.add(colm);
+      }
       this.world.add(g);
     };
     for (let r = pit.entry + 60; r < pit.exit - 40; r += len + 2) place(r, side);
@@ -635,31 +907,39 @@ export class Renderer {
       return placed;
     };
 
-    if (look.trees) {
-      const n = this.quality === 'low' ? Math.floor(look.trees * 0.5) : look.trees;
-      const fol = look.sakura ? new THREE.IcosahedronGeometry(1, 1) : new THREE.ConeGeometry(1, 2.4, 7);
-      const trunk = new THREE.CylinderGeometry(0.18, 0.25, 1, 5);
-      trunk.translate(0, 0.5, 0);
-      const fm = new THREE.MeshLambertMaterial({ flatShading: true });
-      const tm = new THREE.MeshLambertMaterial({ color: 0x5a4030 });
-      const fI = new THREE.InstancedMesh(fol, fm, n);
-      const tI = new THREE.InstancedMesh(trunk, tm, n);
-      const island = look.island;
-      const got = scatter(n, 6, island ? 50 : 400, (x, z, k) => {
-        const s = 3 + R() * 4;
-        const th = s * (0.5 + R() * 0.4);
-        m4.compose(new THREE.Vector3(x, th + s * (look.sakura ? 0.7 : 1.1), z), q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), R() * 6), new THREE.Vector3(s, s * (look.sakura ? 0.85 : 1.1), s));
-        fI.setMatrixAt(k, m4);
-        col.set(look.treeCols[Math.floor(R() * look.treeCols.length)]);
-        col.offsetHSL(0, 0, (R() - 0.5) * 0.08);
-        fI.setColorAt(k, col);
-        m4.compose(new THREE.Vector3(x, 0, z), q.identity(), new THREE.Vector3(s * 0.35, th + s * 0.4, s * 0.35));
-        tI.setMatrixAt(k, m4);
+    // 빌보드 나무 (교차된 두 장의 면)
+    const treeGeo = (() => {
+      const p1 = new THREE.PlaneGeometry(1, 1);
+      p1.translate(0, 0.5, 0);
+      const p2 = p1.clone();
+      p2.rotateY(Math.PI / 2);
+      const g = mergeGeometries([p1, p2]);
+      const nrm = g.attributes.normal;
+      for (let i = 0; i < nrm.count; i++) nrm.setXYZ(i, 0, 1, 0);
+      return g;
+    })();
+    const plantTrees = (kinds, total, minGap, maxGap, size) => {
+      const per = {};
+      kinds.forEach((k) => (per[k] = (per[k] || 0) + Math.round(total / kinds.length)));
+      Object.entries(per).forEach(([kind, n], ki) => {
+        const mat = new THREE.MeshLambertMaterial({ map: TX.treeSprite(kind, ki + 1), alphaTest: 0.45, side: THREE.DoubleSide });
+        const inst = new THREE.InstancedMesh(treeGeo, mat, n);
+        const got = scatter(n, minGap, maxGap, (x, z, k) => {
+          const s = size[0] + R() * size[1];
+          m4.compose(new THREE.Vector3(x, 0, z), q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), R() * Math.PI), new THREE.Vector3(s * (0.8 + R() * 0.3), s, s));
+          inst.setMatrixAt(k, m4);
+          col.setHSL(0, 0, 0.82 + R() * 0.18);
+          inst.setColorAt(k, col);
+        });
+        inst.count = got;
+        this.world.add(inst);
       });
-      fI.count = got;
-      tI.count = got;
-      this.world.add(fI, tI);
+    };
+    if (look.trees) {
+      const n = this.quality === 'low' ? Math.floor(look.trees * 0.45) : look.trees;
+      plantTrees(look.treeKinds, n, 5, look.island ? 55 : 450, [9, 9]);
     }
+    if (look.palmsCity) plantTrees(['palm'], look.palmsCity, 3, 40, [9, 5]);
 
     if (look.city) {
       const n = this.quality === 'low' ? 260 : 520;
@@ -698,21 +978,7 @@ export class Renderer {
     }
 
     if (look.palms) {
-      const n = look.palms;
-      const trunk = new THREE.CylinderGeometry(0.2, 0.3, 1, 5);
-      trunk.translate(0, 0.5, 0);
-      const crown = new THREE.ConeGeometry(1, 0.6, 7);
-      const tI = new THREE.InstancedMesh(trunk, new THREE.MeshLambertMaterial({ color: 0x6a5238 }), n);
-      const cI = new THREE.InstancedMesh(crown, new THREE.MeshLambertMaterial({ color: 0x3f6b2a, flatShading: true }), n);
-      const got = scatter(n, 10, 250, (x, z, k) => {
-        const h = 7 + R() * 5;
-        m4.compose(new THREE.Vector3(x, 0, z), q.identity(), new THREE.Vector3(1, h, 1));
-        tI.setMatrixAt(k, m4);
-        m4.compose(new THREE.Vector3(x, h, z), q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), R() * 3), new THREE.Vector3(3.5, 2, 3.5));
-        cI.setMatrixAt(k, m4);
-      });
-      tI.count = cI.count = got;
-      this.world.add(tI, cI);
+      plantTrees(['palm'], look.palms, 8, 260, [10, 6]);
       // 모래 언덕
       const dg = new THREE.SphereGeometry(1, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2);
       const dI = new THREE.InstancedMesh(dg, new THREE.MeshLambertMaterial({ color: 0x8a6a44 }), 50);
@@ -766,21 +1032,6 @@ export class Renderer {
       }
     }
 
-    // 먼 산
-    const hg = new THREE.ConeGeometry(1, 1, 6);
-    const hm = new THREE.MeshLambertMaterial({ color: look.hills, flatShading: true, fog: true });
-    const hn = 36;
-    const hI = new THREE.InstancedMesh(hg, hm, hn);
-    const cx = (b.minX + b.maxX) / 2;
-    const cz = (b.minZ + b.maxZ) / 2;
-    const rad = Math.max(b.maxX - b.minX, b.maxZ - b.minZ) / 2 + 1600;
-    for (let k = 0; k < hn; k++) {
-      const a = (k / hn) * Math.PI * 2 + R() * 0.1;
-      const s = 300 + R() * 500;
-      m4.compose(new THREE.Vector3(cx + Math.cos(a) * rad, (s * 0.35) / 2 - 5, cz + Math.sin(a) * rad), q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), R() * 6), new THREE.Vector3(s, s * (0.25 + R() * 0.25), s));
-      hI.setMatrixAt(k, m4);
-    }
-    this.world.add(hI);
   }
 
   buildRacingLine(track) {
@@ -930,7 +1181,7 @@ export class Renderer {
     this.clearCars();
     this.teams = teams;
     for (const car of cars) {
-      const model = createCar(car.team, this.envMap, { shadows: this.quality === 'high', tcamYellow: car.driver.num % 2 === 0 });
+      const model = createCar(car.team, this.envMap, { shadows: this.quality === 'high', tcamYellow: car.driver.num % 2 === 0, number: car.driver.num, physical: this.quality === 'high' });
       model.car = car;
       setCarCompound(model, car.compound);
       this.scene.add(model.root);
@@ -1022,7 +1273,7 @@ export class Renderer {
     const f = new THREE.Vector3(Math.cos(car.h), 0, Math.sin(car.h));
     const pos = new THREE.Vector3(car.x, 0, car.z);
     const m = this.carModels.find((x) => x.car === car);
-    const inCar = mode === 'cockpit' || mode === 'tcam';
+    const inCar = mode === 'cockpit' || mode === 'tcam' || mode === 'bumper';
     if (m) {
       m.helmet.visible = mode !== 'cockpit';
       m.visor.visible = mode !== 'cockpit';
@@ -1031,8 +1282,8 @@ export class Renderer {
     const kerbShake = car.surface === 1 ? 0.012 : car.surface >= 2 ? 0.02 : 0;
     const sh = (this.shake * 0.25 + kerbShake * Math.min(1, car.v / 30)) * (Math.random() - 0.5);
     if (inCar) {
-      const lx = mode === 'cockpit' ? 0.22 : -0.05;
-      const ly = mode === 'cockpit' ? 1.04 : 1.24;
+      const lx = mode === 'cockpit' ? 0.22 : mode === 'bumper' ? 2.4 : -0.05;
+      const ly = mode === 'cockpit' ? 1.04 : mode === 'bumper' ? 0.62 : 1.24;
       cam.near = mode === 'cockpit' ? 0.3 : 0.2;
       cam.position.set(car.x + f.x * lx, ly + sh, car.z + f.z * lx);
       const look = new THREE.Vector3(car.x + f.x * 30, ly - 0.9 + sh, car.z + f.z * 30);
@@ -1043,8 +1294,8 @@ export class Renderer {
     } else {
       cam.near = 0.25;
       const far = mode === 'far';
-      const dist = far ? 10.5 : 6.6;
-      const hgt = far ? 3.4 : 2.05;
+      const dist = far ? 9.0 : 5.6;
+      const hgt = far ? 2.8 : 1.55;
       // 진행 방향(요)만 부드럽게 따라가고 거리는 고정
       const yawTarget = car.v < -1 ? car.h + Math.PI : car.h;
       this.camYaw += wrapAngle(yawTarget - this.camYaw) * (1 - Math.exp(-dt * (far ? 4.5 : 6)));
@@ -1054,8 +1305,8 @@ export class Renderer {
       this.camPos.copy(want);
       cam.position.copy(this.camPos);
       cam.position.y += sh;
-      const look = pos.clone().addScaledVector(fy, 5);
-      look.y = far ? 1.0 : 0.95;
+      const look = pos.clone().addScaledVector(fy, 6);
+      look.y = far ? 0.95 : 0.8;
       cam.lookAt(look);
       cam.fov = lerp(cam.fov, 58 + Math.min(14, car.v * 0.15), 1 - Math.exp(-dt * 4));
     }
@@ -1098,6 +1349,8 @@ export class Renderer {
 
   render(dt) {
     this.updateParticles(dt);
-    this.renderer.render(this.scene, this.camera);
+    if (this.flare) this.flare.position.copy(this.camera.position).addScaledVector(this.sunDir, 4000);
+    if (this.composer) this.composer.render(dt);
+    else this.renderer.render(this.scene, this.camera);
   }
 }

@@ -1,6 +1,6 @@
 // three.js 렌더러: 서킷, 풍경, 차량, 카메라, 이펙트
 
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js';
+import * as THREE from 'three';
 import * as TX from './textures.js';
 import { createCar, setCarCompound, resetCarMaterials } from './carmodel.js';
 import { clamp, lerp, rng, wrapAngle, wrapDist } from './util.js';

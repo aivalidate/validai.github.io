@@ -23,7 +23,6 @@ class App {
       steerAssist: this.touch,
       racingLine: 'brake',
       autoDrs: this.touch,
-      tyreRule: true,
       difficulty: 1,
       laps: 5,
       camera: 'chase',
@@ -223,7 +222,6 @@ class App {
       playerNum: 1,
       grid: cfg.grid,
       startCompound: cfg.compound || 'M',
-      tyreRule: s.tyreRule,
       assists: { brake: s.brakeAssist, steer: s.steerAssist, autoThrottle: this.touch && s.autoThrottle, autoDrs: s.autoDrs },
     });
     if (cfg.auto) S.player.auto = true;
@@ -396,19 +394,6 @@ class App {
           if (!P.drsOpen) hud.message('DRS', this.touch ? 'DRS 버튼을 누르세요' : 'Space로 열기', 1.2, 1);
           snd.beep(1500, 0.08, 0.15, 'square');
           break;
-        case 'pitRequest':
-          hud.message(e.on ? '피트 요청' : '피트 취소', e.on ? `다음 피트 입구에서 ${COMPOUNDS[P.pitCompound].name}로 교체` : '', 1.8, 1);
-          break;
-        case 'pitCompound':
-          hud.message(COMPOUNDS[e.c].name, '피트에서 교체할 타이어', 1.2, 0);
-          break;
-        case 'pitIn':
-          hud.message('피트 인', '속도 제한 80 km/h', 1.6, 1);
-          break;
-        case 'pitDone':
-          snd.beep(900, 0.1, 0.2);
-          hud.message('GO GO GO', '', 1.2, 1);
-          break;
         case 'impact':
           snd.thud(Math.min(3, e.v / 12));
           this.renderer.shake = Math.min(1.2, e.v / 15);
@@ -511,7 +496,6 @@ class App {
       const S = this.S;
       const ctl = this.input.poll(dt);
       if (this.touchPress.drs) ctl.drsPress = true;
-      if (this.touchPress.pit) ctl.pitPress = true;
       this.touchPress = {};
       if (ctl.pausePress) this.paused ? this.resume() : this.pause();
       if (ctl.camPress) this.cycleCamera();
@@ -575,7 +559,7 @@ class App {
 
   resetCar(S) {
     const P = S.player;
-    if (P.pitState || P.auto) return;
+    if (P.auto) return;
     if (S.mode === 'tt' || S.mode === 'quali') {
       if (S.mode === 'quali') return;
       S.resetFlying(P);

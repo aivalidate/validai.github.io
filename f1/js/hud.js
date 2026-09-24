@@ -21,21 +21,12 @@ export class Hud {
       spd: $('h-spd'),
       gear: $('h-gear'),
       leds: $('h-leds'),
-      tyres: [...document.querySelectorAll('#h-tyres i')],
-      cmp: $('h-cmp'),
-      wear: $('h-wear'),
-      tyreNote: $('h-tyrenote'),
       drs: $('h-drs'),
-      pit: $('h-pit'),
-      pitc: $('h-pitc'),
       msg: $('msg'),
       msgBig: document.querySelector('#msg .big'),
       msgSmall: document.querySelector('#msg .small'),
       lights: $('lights'),
       lightCols: [...document.querySelectorAll('#lights .col')],
-      pitbox: $('pitbox'),
-      pitTime: $('h-pittime'),
-      pitInfo: $('h-pitinfo'),
       tags: $('tags'),
       hint: $('hint'),
       mini: $('minimap'),
@@ -69,14 +60,12 @@ export class Hud {
     this.el.sectors.forEach((s) => (s.className = ''));
     this.el.lights.hidden = S.mode !== 'race';
     this.el.lightCols.forEach((c) => c.classList.remove('lit'));
-    this.el.pit.hidden = S.mode !== 'race';
-    this.el.pitbox.hidden = true;
     this.el.lapLabel.textContent = S.mode === 'race' ? 'LAP' : S.mode === 'quali' ? 'QUALI' : 'TIME TRIAL';
     this.prepMinimap(track);
     const tips = {
-      race: '←→ 조향 · ↑ 가속 · ↓ 브레이크 · Space DRS · P 피트 요청 · T 타이어 선택 · C 카메라 · Esc 일시정지',
-      quali: '예선: 최대 3번의 플라잉 랩 중 가장 빠른 기록으로 그리드가 정해집니다 · Q 예선 종료',
-      tt: '타임 트라이얼: 코스를 벗어나면 랩이 무효 처리됩니다 · R 리셋 · Esc 일시정지',
+      race: 'A 가속 · F 브레이크 · ←→ 조향 · Space DRS · C 카메라 · Esc 일시정지',
+      quali: 'A 가속 · F 브레이크 · ←→ 조향 · 3번의 플라잉 랩 중 최고 기록으로 그리드 결정 · Q 예선 종료',
+      tt: 'A 가속 · F 브레이크 · ←→ 조향 · 코스를 벗어나면 랩 무효 · R 리셋 · Esc 일시정지',
     };
     this.el.hint.textContent = tips[S.mode];
     this.el.hint.hidden = !!window.matchMedia('(pointer: coarse)').matches;
@@ -204,7 +193,7 @@ export class Hud {
         else if (c.finished) g = '완주';
         else if (c.lapsDown > 0 && list[0].lap - c.lap >= 1 && c.lapsDown >= 1) g = `+${c.lapsDown}랩`;
         else g = S.t > 3 ? fmtGap(c.gap) : '';
-        const pit = c.pitState ? '<span class="pit">PIT</span>' : '';
+        const pit = '';
         return `<div class="row${c.isPlayer ? ' me' : ''}"><span class="p num">${k + 1}</span><span class="c" style="background:${c.team.color}"></span><span class="n">${c.driver.code}${pit}</span><span class="g num">${g}</span></div>`;
       })
       .join('');
@@ -292,21 +281,6 @@ export class Hud {
       });
     }
 
-    // 타이어
-    const c = COMPOUNDS[P.compound];
-    const wearPct = Math.round((1 - P.wear) * 100);
-    this.set('cmp', el.cmp, c.id);
-    el.cmp.style.borderColor = c.color;
-    this.set('wear', el.wear, wearPct + '%');
-    const tcol = P.wear < 0.45 ? 'var(--green)' : P.wear < 0.72 ? 'var(--yellow)' : 'var(--red)';
-    if (this.cache.tcol !== tcol) {
-      this.cache.tcol = tcol;
-      el.tyres.forEach((t) => (t.style.background = tcol));
-    }
-    let note = c.name;
-    if (S.mode === 'race' && S.tyreRule && new Set(P.stints).size < 2) note = '의무 피트 남음';
-    this.set('tnote', el.tyreNote, note);
-
     // DRS
     let drs = 'off';
     if (P.drsOpen) drs = 'open';
@@ -317,26 +291,6 @@ export class Hud {
       el.drs.className = 'hud-box chip' + (drs === 'open' ? ' on' : drs === 'avail' ? ' warn' : '');
       el.drs.innerHTML = drs === 'open' ? 'DRS <small>열림</small>' : drs === 'avail' ? 'DRS <small>사용 가능</small>' : drs === 'armed' ? 'DRS <small>1초 이내</small>' : 'DRS';
     }
-    // 피트
-    if (S.mode === 'race') {
-      const pk = `${P.pitRequest}|${P.pitCompound}|${P.pitState}`;
-      if (this.cache.pit !== pk) {
-        this.cache.pit = pk;
-        el.pit.className = 'hud-box chip' + (P.pitState ? ' on' : P.pitRequest ? ' warn' : '');
-        el.pitc.textContent = (P.pitRequest || P.pitState ? '요청됨 · ' : '') + COMPOUNDS[P.pitCompound].name;
-      }
-    }
-    // 피트 스톱 카운트다운
-    if (P.pitState === 'box') {
-      el.pitbox.hidden = false;
-      this.set('pitt', el.pitTime, Math.max(0, P.pitTimer).toFixed(1) + 's');
-      this.set('piti', el.pitInfo, `${COMPOUNDS[P.pitCompound].name} 타이어로 교체 중`);
-    } else if (P.pitState) {
-      el.pitbox.hidden = false;
-      this.set('pitt', el.pitTime, '80 km/h');
-      this.set('piti', el.pitInfo, P.pitState === 'in' ? '피트레인 속도 제한' : '피트 아웃');
-    } else el.pitbox.hidden = true;
-
     this.towerTimer -= dt;
     if (this.towerTimer <= 0) {
       this.towerTimer = 0.25;

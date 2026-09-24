@@ -1,6 +1,6 @@
 // 오픈휠 머신 3D 모델 (프리미티브와 로프트로 구성, 팀 컬러 리버리)
 
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js';
+import * as THREE from 'three';
 import { tyreSide } from './textures.js';
 import { COMPOUNDS } from './data.js';
 

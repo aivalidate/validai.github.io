@@ -132,8 +132,9 @@ export class Session {
     this.markers = new Map();
     this.fastest = null;
     this.bestSectors = [null, null, null];
-    this.wearMult = this.mode === 'race' ? opts.wearMult ?? 1 : 0;
-    this.tyreRule = this.mode === 'race' && !!opts.tyreRule && this.laps >= 5;
+    // 타이어 전략/피트스톱 없이 운전에 집중하는 규칙
+    this.wearMult = 0;
+    this.tyreRule = false;
     this.cars = [];
     this.qualiLaps = 0;
     this.env = {
@@ -232,11 +233,14 @@ export class Session {
     } else {
       const car = this.player;
       this.resetFlying(car);
-      car.compound = this.mode === 'quali' ? 'S' : 'S';
+      car.compound = 'M';
       car.stints = [car.compound];
     }
     this.order = this.cars.slice();
-    this.cars.forEach((c, k) => (c.pos = k + 1));
+    this.cars.forEach((c, k) => {
+      c.pos = k + 1;
+      c.gridPos = k + 1;
+    });
   }
 
   resetFlying(car) {
@@ -260,25 +264,9 @@ export class Session {
   }
 
   setupStrategy(car) {
-    const laps = this.laps;
-    const o = this.opts;
-    if (car.isPlayer) {
-      car.compound = o.startCompound || 'M';
-      car.stints = [car.compound];
-      car.pitCompound = bestCompoundFor(Math.ceil(laps / 2), laps, this.tyreRule ? car.compound : null);
-      return;
-    }
-    // AI: 1스톱 전략 (타이어 규정이 있거나 마모가 심할 때)
-    const start = Math.random() < 0.55 ? 'M' : 'S';
-    car.compound = laps <= 3 ? 'S' : start;
-    car.stints = [car.compound];
-    const life = 0.8 / wearPerLap(car.compound, laps);
-    const needStop = this.tyreRule || life < laps;
-    if (needStop && this.wearMult > 0) {
-      const lap = clamp(Math.round(Math.min(life, laps * 0.6) + (Math.random() - 0.5) * 1.6), 1, laps - 1);
-      car.pitLap = lap;
-      car.pitCompound = bestCompoundFor(laps - lap, laps, this.tyreRule ? car.compound : null);
-    }
+    car.compound = 'M';
+    car.stints = ['M'];
+    car.pitLap = 99;
   }
 
   get leader() {
@@ -321,15 +309,6 @@ export class Session {
 
     // 플레이어 조작 처리
     if (P && !P.auto) {
-      if (ctl.pitPress && this.mode === 'race') {
-        P.pitRequest = !P.pitRequest;
-        this.emit('pitRequest', { on: P.pitRequest });
-      }
-      if (ctl.compoundPress) {
-        const list = ['S', 'M', 'H'];
-        P.pitCompound = list[(list.indexOf(P.pitCompound) + 1) % 3];
-        this.emit('pitCompound', { c: P.pitCompound });
-      }
       if (ctl.drsPress && P.drsAvail && !P.drsOpen) P.drsOpen = true;
       else if (ctl.drsPress && P.drsOpen) P.drsOpen = false;
       if (P.drsOpen && ctl.brake > 0.15) {
@@ -428,9 +407,6 @@ export class Session {
     const edge = track.half - 1;
     if (Math.sign(car.d) === -Math.sign(track.curv[track.idx(car.s)]) && Math.abs(car.d) > edge) throttle = Math.min(throttle, 0.2);
     if (car.drsAvail && !car.drsOpen) car.drsOpen = true;
-    // 피트 요청 자동 처리 (테스트용)
-    if (car.auto && this.mode === 'race' && car.pitCount === 0 && this.tyreRule && car.lap >= Math.ceil(this.laps / 2) && !car.finished)
-      car.pitRequest = true;
     return { steer, throttle, brake };
   }
 
@@ -550,21 +526,6 @@ export class Session {
         car.drsEligible = false;
       }
     });
-
-    // 피트 입구
-    if (!car.pitState && this.mode === 'race' && this.phase === 'green' && crossed(prevS, ds, mod(track.pit.entry, L), L) >= 0) {
-      const want = car.isPlayer ? car.pitRequest : !car.finished && (car.lap >= car.pitLap || car.wear > 0.84) && car.pitCount === 0;
-      if (want && !(car.isPlayer && car.finished)) this.enterPit(car);
-    }
-
-    // AI: 피트 들어가기 전 피트 쪽 차선으로
-    if (!car.isPlayer && !car.pitState) {
-      const r = wrapDist(car.s - mod(track.pit.entry, L), L);
-      const planned = car.pitCount === 0 && (car.lap >= car.pitLap || car.wear > 0.84) && !car.finished;
-      car.wantPit = planned && r > -350 && r < 0;
-      if (car.wantPit) car.lineBias = track.pit.side * (track.half - 2.2) - track.sample(track.off, car.s);
-      else if (Math.abs(car.lineBias) > 0.5) car.lineBias *= 0.98;
-    }
 
     // 트랙 이탈 (예선/타임어택 랩 무효)
     if (car.isPlayer && Math.abs(car.d) > track.half + 2.3 && !car.pitState && car.lapValid && car.lap >= 1) {

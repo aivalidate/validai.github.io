@@ -1,6 +1,6 @@
 // 캔버스로 생성하는 텍스처들 (외부 이미지 없음)
 
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js';
+import * as THREE from 'three';
 import { rng } from './util.js';
 
 function canvas(w, h) {

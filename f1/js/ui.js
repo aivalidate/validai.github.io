@@ -208,7 +208,7 @@ export class Menu {
     const nextT = c && c.round < c.calendar.length ? TRACKS.find((t) => t.id === c.calendar[c.round]) : null;
     return `<div class="screen">
       <div class="brand"><span class="eyebrow">OPEN-WHEEL GRAND PRIX</span><h1>FORMULA<br><em>GP</em></h1>
-      <p>1000마력 머신으로 20대가 달리는 그랑프리. 예선으로 그리드를 정하고, 타이어 전략과 피트스톱, DRS로 결승을 풀어가세요.</p></div>
+      <p>1000마력 머신으로 20대가 달리는 그랑프리. 예선으로 그리드를 정하고, 슬립스트림과 DRS로 추월하며 결승을 달리세요.</p></div>
       <div class="menu-list">
         <button type="button" class="mbtn primary" data-act="career"><span><b>커리어 시즌</b><span>${c ? (nextT ? `라운드 ${c.round + 1}/${c.calendar.length} · ${esc(nextT.name)} · ${c.points[PLAYER_ID] || 0}점` : '시즌 종료 · 결과 보기') : '6개 그랑프리, 드라이버 챔피언십에 도전'}</span></span><span class="arrow">→</span></button>
         <button type="button" class="mbtn" data-act="quick"><span><b>퀵 레이스</b><span>서킷, 팀, 랩 수를 골라 바로 레이스</span></span><span class="arrow">→</span></button>
@@ -231,7 +231,6 @@ export class Menu {
       <div class="field"><h3>랩 수</h3>${seg('laps', LAP_OPTIONS.map((l) => [l, l + '랩']), s.laps)}</div>
       <div class="field"><h3>AI 난이도</h3>${seg('difficulty', DIFFICULTY.map((d) => [d.id, d.name]), s.difficulty)}</div>
       <div class="field"><h3>예선</h3>${seg('quali', [[1, '예선 진행'], [0, '건너뛰기 (무작위 그리드)']], st.quali)}</div>
-      <div class="field"><h3>출발 타이어</h3>${compoundPicker(st.compound)}<p class="note">5랩 이상 결승에서는 두 종류 이상의 타이어를 써야 합니다(설정에서 끌 수 있음). 어기면 10초 페널티.</p></div>
       <div class="row-btns"><button type="button" class="btn primary" data-act="startQuick">레이스 주말 시작</button></div>
     </div>`;
   }
@@ -294,7 +293,6 @@ export class Menu {
       ${
         next
           ? `<div class="field"><h3>이번 주말</h3><p class="sub">${esc(next.blurb)} · ${c.laps}랩 · AI ${DIFFICULTY[c.difficulty].name}</p>
-        <div class="field"><h3>출발 타이어</h3>${compoundPicker(this.state.compound)}</div>
         <div class="row-btns"><button type="button" class="btn primary" data-act="careerQuali">예선 시작</button><button type="button" class="btn" data-act="careerSkip">예선 건너뛰기 (맨 뒤 출발)</button></div></div>`
           : `<div class="row-btns"><button type="button" class="btn primary" data-act="resultsNext">시즌 결과</button></div>`
       }
@@ -351,7 +349,6 @@ export class Menu {
       <div class="field"><h3>스티어링 보조</h3>${seg('steerAssist', [[false, '끔'], [true, '켬']], s.steerAssist)}</div>
       <div class="field"><h3>레이싱 라인</h3>${seg('racingLine', [['off', '끔'], ['brake', '코너만'], ['full', '전체']], s.racingLine)}<p class="note">빨간색은 지금 속도면 제동해야 하는 구간, 노란색은 곧 제동 구간입니다.</p></div>
       <div class="field"><h3>DRS</h3>${seg('autoDrs', [[false, '직접 열기'], [true, '자동']], s.autoDrs)}</div>
-      <div class="field"><h3>타이어 규정 (5랩 이상)</h3>${seg('tyreRule', [[true, '2종 의무 사용'], [false, '자유']], s.tyreRule)}</div>
       <div class="field"><h3>기본 AI 난이도</h3>${seg('difficulty', DIFFICULTY.map((d) => [d.id, d.name]), s.difficulty)}</div>
       <div class="field"><h3>카메라</h3>${seg('camera', [['chase', '추격'], ['far', '먼 추격'], ['cockpit', '콕핏'], ['tcam', 'T-캠']], s.camera)}</div>
       <div class="field"><h3>그래픽 품질</h3>${seg('quality', [['low', '낮음'], ['mid', '보통'], ['high', '높음 (그림자)']], s.quality)}</div>
@@ -364,12 +361,10 @@ export class Menu {
       <button type="button" class="back" data-act="back">← 뒤로</button>
       <h2>조작법</h2>
       <div class="field"><h3>키보드</h3><div class="keys">
-        <kbd>← →</kbd><span>조향 (A / D)</span>
-        <kbd>↑</kbd><span>가속 (W)</span>
-        <kbd>↓</kbd><span>브레이크 / 후진 (S)</span>
+        <kbd>A</kbd><span>가속</span>
+        <kbd>F</kbd><span>브레이크 (멈춘 상태에서 계속 누르면 후진)</span>
+        <kbd>← →</kbd><span>좌우 조향</span>
         <kbd>Space</kbd><span>DRS 열기 · 닫기 (DRS 구간에서 앞차와 1초 이내일 때)</span>
-        <kbd>P</kbd><span>피트 요청 · 취소 (다음 피트 입구에서 자동으로 들어갑니다)</span>
-        <kbd>T</kbd><span>피트에서 교체할 타이어 선택 (소프트 → 미디엄 → 하드)</span>
         <kbd>C</kbd><span>카메라 전환</span>
         <kbd>L</kbd><span>레이싱 라인 표시 전환</span>
         <kbd>R</kbd><span>트랙으로 복귀 (타임 트라이얼은 랩 리셋)</span>
@@ -377,10 +372,11 @@ export class Menu {
         <kbd>Esc</kbd><span>일시정지</span>
         <kbd>Q</kbd><span>예선 종료</span>
       </div></div>
+      <div class="field"><h3>휴대폰</h3><p class="sub">기울기 조향 또는 화면 버튼으로 조향하고, 기본으로 자동 가속이 켜져 있어 브레이크만 누르면 됩니다. 설정에서 바꿀 수 있어요.</p></div>
       <div class="field"><h3>게임패드</h3><div class="keys">
-        <kbd>왼쪽 스틱</kbd><span>조향</span><kbd>RT / LT</kbd><span>가속 / 브레이크</span><kbd>B</kbd><span>DRS</span><kbd>X</kbd><span>피트 요청</span><kbd>RB</kbd><span>타이어 선택</span><kbd>Y</kbd><span>카메라</span><kbd>Start</kbd><span>일시정지</span>
+        <kbd>왼쪽 스틱</kbd><span>조향</span><kbd>RT / LT</kbd><span>가속 / 브레이크</span><kbd>B</kbd><span>DRS</span><kbd>Y</kbd><span>카메라</span><kbd>Start</kbd><span>일시정지</span>
       </div></div>
-      <div class="field"><h3>레이스 팁</h3><p class="sub">출발은 신호등 5개가 모두 켜졌다가 꺼지는 순간입니다. 타이어는 마모될수록 그립이 떨어지고 80%를 넘으면 급격히 느려집니다. 피트레인은 시속 80km 제한이며 박스 정지 약 2.5초를 포함해 20초 정도를 잃습니다. 앞차 뒤 45m 안에서는 슬립스트림으로 직선 속도가 올라갑니다.</p></div>
+      <div class="field"><h3>레이스 팁</h3><p class="sub">출발은 신호등 5개가 모두 켜졌다가 꺼지는 순간입니다. 피트스톱과 타이어 관리는 없으니 달리기에만 집중하세요. 앞차 뒤 45m 안에서는 슬립스트림으로 직선 속도가 올라가고, DRS 구간에서 앞차와 1초 이내면 DRS로 추월할 수 있어요.</p></div>
     </div>`;
   }
 
@@ -414,7 +410,6 @@ export class Menu {
           return `<tr class="${r.player ? 'me' : ''}"><td class="n">${k + 1}</td><td><span class="sw" style="background:${teamById(d.team).color}"></span>${esc(d.name)} <span class="note">${esc(r.code)}</span></td><td>${esc(teamById(d.team).short)}</td><td class="n">${isFinite(r.time) ? fmtTime(r.time) : '기록 없음'}</td><td class="n">${k && isFinite(r.time) ? '+' + (r.time - pole.time).toFixed(3) : ''}</td></tr>`;
         })
         .join('')}</tbody></table></div>
-      <div class="field"><h3>결승 출발 타이어</h3>${compoundPicker(this.state.compound)}</div>
       <div class="row-btns"><button type="button" class="btn primary" data-act="startRace">결승 시작</button><button type="button" class="btn ghost" data-act="main">메인으로</button></div>
     </div>`;
   }
@@ -430,24 +425,18 @@ export class Menu {
         <div class="stat"><small>순위</small><b>P${me.pos}</b></div>
         <div class="stat"><small>획득 포인트</small><b>+${me.points}</b></div>
         <div class="stat"><small>베스트 랩</small><b>${fmtTime(me.car.bestLap)}</b></div>
-        <div class="stat"><small>피트스톱</small><b>${me.car.pitCount}회</b></div>
+        <div class="stat"><small>출발 순위</small><b>P${me.car.gridPos}</b></div>
       </div>
-      <div class="table-wrap"><table><thead><tr><th class="n">#</th><th>드라이버</th><th>팀</th><th>타이어</th><th class="n">기록</th><th class="n">PTS</th></tr></thead><tbody>${res
+      <div class="table-wrap"><table><thead><tr><th class="n">#</th><th>드라이버</th><th>팀</th><th class="n">기록</th><th class="n">PTS</th></tr></thead><tbody>${res
         .map(
           (r) =>
-            `<tr class="${r.car.isPlayer ? 'me' : ''}"><td class="n">${r.pos}</td><td><span class="sw" style="background:${r.car.team.color}"></span>${esc(r.car.driver.name)} ${fl && fl.car === r.car ? '<span class="pill fl">최고 랩</span>' : ''} ${r.car.penalty ? `<span class="pill pen">+${r.car.penalty}초</span>` : ''}</td><td>${esc(r.car.team.short)}</td><td>${r.car.stints.map((c) => `<span style="color:${COMPOUNDS[c].color};font-weight:800">${c}</span>`).join(' ')}</td><td class="n">${r.pos === 1 ? fmtTime(r.total) : r.gapText}</td><td class="n">${r.points || ''}</td></tr>`,
+            `<tr class="${r.car.isPlayer ? 'me' : ''}"><td class="n">${r.pos}</td><td><span class="sw" style="background:${r.car.team.color}"></span>${esc(r.car.driver.name)} ${fl && fl.car === r.car ? '<span class="pill fl">최고 랩</span>' : ''} ${r.car.penalty ? `<span class="pill pen">+${r.car.penalty}초</span>` : ''}</td><td>${esc(r.car.team.short)}</td><td class="n">${r.pos === 1 ? fmtTime(r.total) : r.gapText}</td><td class="n">${r.points || ''}</td></tr>`,
         )
         .join('')}</tbody></table></div>
       ${me.car.penalties.length ? `<p class="note">페널티: ${me.car.penalties.map((p) => `${esc(p.reason)} +${p.sec}초`).join(', ')}</p>` : ''}
       <div class="row-btns">${career ? '<button type="button" class="btn primary" data-act="resultsNext">챔피언십 보기</button>' : '<button type="button" class="btn primary" data-act="again">다시 달리기</button><button type="button" class="btn" data-act="main">메인으로</button>'}</div>
     </div>`;
   }
-}
-
-function compoundPicker(sel) {
-  return `<div class="compounds">${Object.values(COMPOUNDS)
-    .map((c) => `<button type="button" class="cmp-btn" data-cmp="${c.id}" aria-pressed="${c.id === sel}"><i style="border-color:${c.color}"></i>${c.name}</button>`)
-    .join('')}</div>`;
 }
 
 export function standings(c) {

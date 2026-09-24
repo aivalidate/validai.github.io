@@ -67,7 +67,6 @@ export class Input {
       </div>
       <div class="mid">
         <div class="tb small" data-a="drs">DRS</div>
-        <div class="tb small" data-a="pit">PIT</div>
       </div>
       <div class="pad right">
         <div class="tb brake" data-k="brake">BRAKE</div>
@@ -111,10 +110,11 @@ export class Input {
     let throttle = 0;
     let brake = 0;
     let analog = null;
-    if (K.has('ArrowLeft') || K.has('KeyA')) target -= 1;
-    if (K.has('ArrowRight') || K.has('KeyD')) target += 1;
-    if (K.has('ArrowUp') || K.has('KeyW')) throttle = 1;
-    if (K.has('ArrowDown') || K.has('KeyS')) brake = 1;
+    // A 가속, F 브레이크, ←→ 조향 (↑↓도 보조로 동작)
+    if (K.has('ArrowLeft')) target -= 1;
+    if (K.has('ArrowRight')) target += 1;
+    if (K.has('KeyA') || K.has('ArrowUp')) throttle = 1;
+    if (K.has('KeyF') || K.has('ArrowDown')) brake = 1;
     if (this.touch.left) target -= 1;
     if (this.touch.right) target += 1;
     if (this.touch.gas) throttle = 1;
@@ -141,10 +141,8 @@ export class Input {
       const was = this.padPrev[p.index] || [];
       const edge = (i) => p.buttons[i] && p.buttons[i].pressed && !was[i];
       if (edge(1)) presses.drs = true;
-      if (edge(2)) presses.pit = true;
       if (edge(3)) presses.cam = true;
       if (edge(9)) presses.pause = true;
-      if (edge(5)) presses.compound = true;
       this.padPrev[p.index] = p.buttons.map((b) => b.pressed);
     }
 
@@ -157,10 +155,8 @@ export class Input {
     }
 
     if (this.consume('Space') || this.consume('KeyE')) presses.drs = true;
-    if (this.consume('KeyP')) presses.pit = true;
     if (this.consume('KeyC')) presses.cam = true;
     if (this.consume('Escape')) presses.pause = true;
-    if (this.consume('KeyT')) presses.compound = true;
     if (this.consume('KeyQ')) presses.quit = true;
     if (this.consume('KeyM')) presses.mute = true;
     if (this.consume('KeyR')) presses.reset = true;

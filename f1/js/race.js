@@ -7,8 +7,14 @@ import { stepPlayer, stepPit, stepAI, collideCars, autoSteer, refSpeed, gearFor,
 
 const SUB = 1 / 120;
 
+// 플레이어의 내부 식별자 (표시용 약칭과 별개라 AI와 약칭이 같아도 안전)
+export const PLAYER_ID = '@PLAYER';
+
+// 소프트 타이어가 완전히 닳는 데 걸리는 랩 수를 레이스 길이에 맞춘다
+// (짧은 레이스는 무정지로 완주 가능, 긴 레이스는 전략이 필요)
 export function wearPerLap(compound, laps) {
-  return COMPOUNDS[compound].wear / (Math.max(laps, 6) * 0.5);
+  const softLife = laps <= 4 ? laps * 1.5 : Math.max(3, laps * 0.5);
+  return COMPOUNDS[compound].wear / softLife;
 }
 
 // 남은 랩 수를 버틸 수 있는 가장 부드러운 타이어
@@ -172,8 +178,8 @@ export class Session {
     for (const d of DRIVERS) {
       if (!replaced && d.team === pTeam.id && DRIVERS.filter((x) => x.team === pTeam.id).indexOf(d) === 1) {
         replaced = true;
-        roster.push({ name: o.playerName || '플레이어', code: o.playerCode || 'YOU', team: pTeam.id, num: o.playerNum || 1, skill: 1, player: true });
-      } else roster.push({ ...d });
+        roster.push({ id: PLAYER_ID, name: o.playerName || '플레이어', code: o.playerCode || 'YOU', team: pTeam.id, num: o.playerNum || 1, skill: 1, player: true });
+      } else roster.push({ ...d, id: d.code });
     }
     this.roster = roster;
 
@@ -182,7 +188,7 @@ export class Session {
     // 그리드 순서
     let order = entries;
     if (this.mode === 'race' && o.grid) {
-      order = o.grid.map((code) => entries.find((d) => d.code === code)).filter(Boolean);
+      order = o.grid.map((id) => entries.find((d) => d.id === id)).filter(Boolean);
       for (const d of entries) if (!order.includes(d)) order.push(d);
     }
     order.forEach((drv, k) => {
@@ -700,9 +706,9 @@ export function simulateQuali(track, difficulty, playerTeamId, playerCode, playe
     const prof = computeProfile(track, p * p * team.perf * COMPOUNDS.S.grip, Math.pow(team.perf, 1.5));
     let t = prof.lapTime * (1 + Math.random() * 0.006);
     if (Math.random() < [0.15, 0.1, 0.06, 0.03][diff.id]) t *= 1.006 + Math.random() * 0.01;
-    list.push({ code: d.code, time: t });
+    list.push({ id: d.code, code: d.code, time: t });
   }
-  list.push({ code: playerCode, time: playerTime ?? Infinity, player: true });
+  list.push({ id: PLAYER_ID, code: playerCode, time: playerTime ?? Infinity, player: true });
   list.sort((a, b) => a.time - b.time);
   return list;
 }

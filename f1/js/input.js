@@ -59,7 +59,8 @@ export class Input {
   // 터치 조작 버튼 구성
   buildTouch(el, onAction) {
     const s = this.settings;
-    const tilt = s.steerMode === 'tilt';
+    // 센서 값이 들어오지 않으면(권한 거부 등) 버튼 조향으로 대체
+    const tilt = s.steerMode === 'tilt' && this.tilt != null;
     el.innerHTML = `
       <div class="pad left">
         ${tilt ? '' : '<div class="tb" data-k="left" aria-label="왼쪽">◀</div><div class="tb" data-k="right" aria-label="오른쪽">▶</div>'}
@@ -158,7 +159,7 @@ export class Input {
     if (this.consume('Space') || this.consume('KeyE')) presses.drs = true;
     if (this.consume('KeyP')) presses.pit = true;
     if (this.consume('KeyC')) presses.cam = true;
-    if (this.consume('Escape') || this.consume('Enter')) presses.pause = true;
+    if (this.consume('Escape')) presses.pause = true;
     if (this.consume('KeyT')) presses.compound = true;
     if (this.consume('KeyQ')) presses.quit = true;
     if (this.consume('KeyM')) presses.mute = true;

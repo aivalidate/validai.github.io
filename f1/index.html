@@ -138,14 +138,14 @@ button { font: inherit; color: inherit; }
 @keyframes slide { from { transform: translateX(-12px); opacity: 0; } to { transform: none; opacity: 1; } }
 .brand { display: flex; flex-direction: column; gap: 2px; }
 .brand .eyebrow { font-family: var(--display); font-weight: 700; letter-spacing: 3px; font-size: 13px; color: var(--accent); }
-.brand h1 { font-family: var(--display); font-size: clamp(56px, 11vw, 96px); font-weight: 800; line-height: 0.85; margin: 0; letter-spacing: -1px; font-style: italic; text-wrap: balance; }
+.brand h1 { font-family: var(--display); font-size: clamp(52px, 9vw, 84px); font-weight: 800; line-height: 0.85; margin: 0; letter-spacing: -1px; font-style: italic; text-wrap: balance; }
 .brand h1 em { color: var(--accent); font-style: italic; }
 .brand p { margin: 8px 0 0; color: var(--muted); font-size: 15px; line-height: 1.55; max-width: 44ch; }
 h2 { font-family: var(--display); font-size: 40px; font-weight: 800; margin: 0; line-height: 1; letter-spacing: 0.2px; text-wrap: balance; }
 h3 { font-family: var(--display); font-size: 15px; font-weight: 700; letter-spacing: 2px; color: var(--muted); margin: 0; text-transform: uppercase; }
 .sub { color: var(--muted); font-size: 14px; line-height: 1.55; margin: 0; }
 .menu-list { display: flex; flex-direction: column; gap: 6px; }
-.mbtn { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 14px 16px; border-radius: 8px; border: 1px solid var(--line); background: rgba(20, 25, 32, 0.75); cursor: pointer; transition: background 0.15s, border-color 0.15s, transform 0.15s; }
+.mbtn { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 12px 16px; border-radius: 8px; border: 1px solid var(--line); background: rgba(20, 25, 32, 0.75); cursor: pointer; transition: background 0.15s, border-color 0.15s, transform 0.15s; }
 .mbtn:hover, .mbtn:focus-visible { border-color: var(--accent); background: rgba(30, 36, 46, 0.9); outline: none; transform: translateX(3px); }
 .mbtn b { font-family: var(--display); font-size: 26px; font-weight: 800; letter-spacing: 0.3px; line-height: 1; display: block; }
 .mbtn span { color: var(--muted); font-size: 13px; display: block; margin-top: 4px; }
@@ -295,5 +295,20 @@ kbd { font-family: var(--display); font-weight: 700; font-size: 14px; padding: 2
 <div id="rotate" hidden><div><b>가로 화면을 추천해요</b><span class="sub">휴대폰을 가로로 돌리면 더 넓게 보고 조작할 수 있어요.</span><div style="margin-top:14px"><button class="btn" type="button" id="rotate-ok">세로로 계속하기</button></div></div></div>
 <div id="loading">LOADING</div>
 <script type="module" src="./js/main.js"></script>
+<script>
+  // 3D 라이브러리를 불러오지 못했을 때 안내
+  setTimeout(function () {
+    if (!window.__app) {
+      var el = document.getElementById('loading');
+      el.hidden = false;
+      el.style.fontFamily = 'system-ui, sans-serif';
+      el.style.letterSpacing = '0';
+      el.style.fontSize = '15px';
+      el.style.padding = '24px';
+      el.style.textAlign = 'center';
+      el.textContent = '게임을 불러오지 못했어요. 인터넷 연결을 확인하고 새로고침해 주세요. (WebGL을 지원하는 최신 브라우저가 필요합니다)';
+    }
+  }, 20000);
+</script>
 </body>
 </html>

@@ -6,7 +6,7 @@ import { Input, isTouch } from './input.js';
 import { Sound } from './audio.js';
 import { Menu } from './ui.js';
 import { TRACKS, buildTrack } from './tracks.js';
-import { Session, simulateQuali } from './race.js';
+import { Session, simulateQuali, PLAYER_ID } from './race.js';
 import { TEAMS, DRIVERS, COMPOUNDS, teamById } from './data.js';
 import { storage, fmtTime, hexToRgb } from './util.js';
 
@@ -186,14 +186,10 @@ class App {
         [codes[i], codes[j]] = [codes[j], codes[i]];
       }
       const pos = career ? codes.length : 5 + Math.floor(Math.random() * 10);
-      codes.splice(pos, 0, this.profileCode());
+      codes.splice(pos, 0, PLAYER_ID);
       this.weekend.grid = codes;
       this.startRaceFromGrid(compound);
     }
-  }
-
-  profileCode() {
-    return this.weekend && this.weekend.career ? this.career.code : this.profile.code;
   }
 
   startRaceFromGrid(compound) {
@@ -246,6 +242,7 @@ class App {
     this.lastPosMsg = 0;
     this.sound.init();
     this.sound.setMuted(!s.sound);
+    this.input.pressed.clear();
     // 터치 조작
     const touchEl = document.getElementById('touch');
     touchEl.hidden = !this.touch;
@@ -297,8 +294,10 @@ class App {
     const S = this.S;
     if (!S || S.mode !== 'quali') return;
     const w = this.weekend;
-    const list = simulateQuali(S.track, w.difficulty, w.teamId, S.player.driver.code, S.player.bestLap);
-    w.grid = list.map((r) => r.code);
+    // 예선 중 보여준 순위와 같은 AI 기록을 사용
+    const ai = this.qualiAI(S);
+    const list = ai.concat([{ id: PLAYER_ID, code: S.player.driver.code, time: S.player.bestLap ?? Infinity, player: true }]).sort((a, b) => a.time - b.time);
+    w.grid = list.map((r) => r.id);
     this.state = 'interlude';
     this.hud.show(false);
     document.getElementById('touch').hidden = true;
@@ -313,7 +312,7 @@ class App {
     if (w && w.career && this.career) {
       const c = this.career;
       for (const r of res) {
-        const code = r.car.driver.code;
+        const code = r.car.driver.id;
         c.points[code] = (c.points[code] || 0) + r.points;
         c.teamPoints[r.car.team.id] = (c.teamPoints[r.car.team.id] || 0) + r.points;
       }
@@ -490,14 +489,18 @@ class App {
     }
   }
 
+  qualiAI(S) {
+    if (!this.qualiRef || this.qualiRef.S !== S) {
+      const w = this.weekend;
+      this.qualiRef = { S, list: simulateQuali(S.track, w ? w.difficulty : 1, S.player.team.id, S.player.driver.code, null).filter((r) => !r.player) };
+    }
+    return this.qualiRef.list;
+  }
+
   qualiRank(S) {
     const t = S.player.bestLap;
     if (t == null) return null;
-    if (!this.qualiRef || this.qualiRef.track !== S.track.id) {
-      const w = this.weekend;
-      this.qualiRef = { track: S.track.id, list: simulateQuali(S.track, w ? w.difficulty : 1, S.player.team.id, S.player.driver.code, null).filter((r) => !r.player) };
-    }
-    return this.qualiRef.list.filter((r) => r.time < t).length + 1;
+    return this.qualiAI(S).filter((r) => r.time < t).length + 1;
   }
 
   loop(now) {
@@ -600,7 +603,7 @@ class App {
     this.applySettings();
     this.weekend = { trackId, teamId: 'taurus', compound: 'S', career: false, laps: +(params.get('laps') || 2), difficulty: 1 };
     const codes = DRIVERS.filter((d) => d.code !== 'ORT').map((d) => d.code);
-    codes.splice(+(params.get('grid') || 6), 0, this.profile.code);
+    codes.splice(+(params.get('grid') || 6), 0, PLAYER_ID);
     this.startSession({ trackId, mode, teamId: 'taurus', grid: codes, laps: this.weekend.laps, difficulty: 1, compound: 'S', auto: params.get('auto') !== '0' });
     window.__app = this;
   }

@@ -3,6 +3,7 @@
 import { TEAMS, DRIVERS, DIFFICULTY, COMPOUNDS, LAP_OPTIONS, teamById } from './data.js';
 import { TRACKS } from './tracks.js';
 import { fmtTime, storage } from './util.js';
+import { PLAYER_ID } from './race.js';
 
 export const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
@@ -209,7 +210,7 @@ export class Menu {
       <div class="brand"><span class="eyebrow">OPEN-WHEEL GRAND PRIX</span><h1>FORMULA<br><em>GP</em></h1>
       <p>1000마력 머신으로 20대가 달리는 그랑프리. 예선으로 그리드를 정하고, 타이어 전략과 피트스톱, DRS로 결승을 풀어가세요.</p></div>
       <div class="menu-list">
-        <button type="button" class="mbtn primary" data-act="career"><span><b>커리어 시즌</b><span>${c ? (nextT ? `라운드 ${c.round + 1}/${c.calendar.length} · ${esc(nextT.name)} · ${c.points[c.code] || 0}점` : '시즌 종료 · 결과 보기') : '6개 그랑프리, 드라이버 챔피언십에 도전'}</span></span><span class="arrow">→</span></button>
+        <button type="button" class="mbtn primary" data-act="career"><span><b>커리어 시즌</b><span>${c ? (nextT ? `라운드 ${c.round + 1}/${c.calendar.length} · ${esc(nextT.name)} · ${c.points[PLAYER_ID] || 0}점` : '시즌 종료 · 결과 보기') : '6개 그랑프리, 드라이버 챔피언십에 도전'}</span></span><span class="arrow">→</span></button>
         <button type="button" class="mbtn" data-act="quick"><span><b>퀵 레이스</b><span>서킷, 팀, 랩 수를 골라 바로 레이스</span></span><span class="arrow">→</span></button>
         <button type="button" class="mbtn" data-act="tt"><span><b>타임 트라이얼</b><span>혼자 달리며 베스트 랩과 고스트에 도전</span></span><span class="arrow">→</span></button>
         <button type="button" class="mbtn" data-act="settings"><span><b>설정</b><span>조작 방식, 주행 보조, 난이도, 그래픽</span></span><span class="arrow">→</span></button>
@@ -276,7 +277,7 @@ export class Menu {
     const team = teamById(c.team);
     const next = c.round < c.calendar.length ? TRACKS.find((t) => t.id === c.calendar[c.round]) : null;
     const drivers = standings(c);
-    const myPos = drivers.findIndex((d) => d.code === c.code) + 1;
+    const myPos = drivers.findIndex((d) => d.id === PLAYER_ID) + 1;
     const teamsTbl = Object.entries(c.teamPoints)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 10);
@@ -286,7 +287,7 @@ export class Menu {
       <div><h3>${esc(team.name)} · ${esc(c.name)}</h3><h2>${next ? `라운드 ${c.round + 1} · ${esc(next.name)}` : '시즌 종료'}</h2></div>
       <div class="stat-row">
         <div class="stat"><small>챔피언십 순위</small><b>${c.round ? 'P' + myPos : '—'}</b></div>
-        <div class="stat"><small>포인트</small><b>${c.points[c.code] || 0}</b></div>
+        <div class="stat"><small>포인트</small><b>${c.points[PLAYER_ID] || 0}</b></div>
         <div class="stat"><small>우승</small><b>${c.results.filter((r) => r.pos === 1).length}</b></div>
         <div class="stat"><small>포디움</small><b>${c.results.filter((r) => r.pos <= 3).length}</b></div>
       </div>
@@ -306,7 +307,7 @@ export class Menu {
         .join('')}</div></div>
       <div class="field"><h3>드라이버 순위</h3><div class="table-wrap"><table><thead><tr><th class="n">#</th><th>드라이버</th><th>팀</th><th class="n">PTS</th></tr></thead><tbody>${drivers
         .slice(0, 20)
-        .map((d, k) => `<tr class="${d.code === c.code ? 'me' : ''}"><td class="n">${k + 1}</td><td><span class="sw" style="background:${teamById(d.team).color}"></span>${esc(d.name)}</td><td>${esc(teamById(d.team).short)}</td><td class="n">${d.pts}</td></tr>`)
+        .map((d, k) => `<tr class="${d.id === PLAYER_ID ? 'me' : ''}"><td class="n">${k + 1}</td><td><span class="sw" style="background:${teamById(d.team).color}"></span>${esc(d.name)}</td><td>${esc(teamById(d.team).short)}</td><td class="n">${d.pts}</td></tr>`)
         .join('')}</tbody></table></div></div>
       <div class="field"><h3>컨스트럭터 순위</h3><div class="table-wrap"><table><tbody>${teamsTbl
         .map(([id, pts], k) => `<tr class="${id === c.team ? 'me' : ''}"><td class="n">${k + 1}</td><td><span class="sw" style="background:${teamById(id).color}"></span>${esc(teamById(id).name)}</td><td class="n">${pts}</td></tr>`)
@@ -319,14 +320,14 @@ export class Menu {
     const c = this.app.career;
     const drivers = standings(c);
     const champ = drivers[0];
-    const me = drivers.findIndex((d) => d.code === c.code) + 1;
+    const me = drivers.findIndex((d) => d.id === PLAYER_ID) + 1;
     return `<div class="screen wide">
       <h3>시즌 종료</h3>
       <h2>${me === 1 ? '월드 챔피언!' : `챔피언십 ${me}위`}</h2>
-      <p class="sub">${me === 1 ? `${esc(c.name)} 선수가 ${c.points[c.code]}점으로 시즌 챔피언이 되었습니다.` : `챔피언은 ${esc(champ.name)} (${champ.pts}점). 다음 시즌에 다시 도전해 보세요.`}</p>
+      <p class="sub">${me === 1 ? `${esc(c.name)} 선수가 ${c.points[PLAYER_ID] || 0}점으로 시즌 챔피언이 되었습니다.` : `챔피언은 ${esc(champ.name)} (${champ.pts}점). 다음 시즌에 다시 도전해 보세요.`}</p>
       <div class="table-wrap"><table><tbody>${drivers
         .slice(0, 10)
-        .map((d, k) => `<tr class="${d.code === c.code ? 'me' : ''}"><td class="n">${k + 1}</td><td><span class="sw" style="background:${teamById(d.team).color}"></span>${esc(d.name)}</td><td class="n">${d.pts}</td></tr>`)
+        .map((d, k) => `<tr class="${d.id === PLAYER_ID ? 'me' : ''}"><td class="n">${k + 1}</td><td><span class="sw" style="background:${teamById(d.team).color}"></span>${esc(d.name)}</td><td class="n">${d.pts}</td></tr>`)
         .join('')}</tbody></table></div>
       <div class="row-btns"><button type="button" class="btn primary" data-act="careerDelete">새 시즌 준비 (기록 삭제)</button><button type="button" class="btn" data-act="main">메인으로</button></div>
     </div>`;
@@ -450,11 +451,11 @@ function compoundPicker(sel) {
 }
 
 export function standings(c) {
-  const list = DRIVERS.map((d) => ({ code: d.code, name: d.name, team: d.team, pts: c.points[d.code] || 0 }));
+  const list = DRIVERS.map((d) => ({ id: d.code, code: d.code, name: d.name, team: d.team, pts: c.points[d.code] || 0 }));
   // 플레이어는 팀 두 번째 드라이버를 대신함
   const second = DRIVERS.filter((d) => d.team === c.team)[1];
   const i = list.findIndex((d) => d.code === second.code);
-  list[i] = { code: c.code, name: c.name, team: c.team, pts: c.points[c.code] || 0 };
+  list[i] = { id: PLAYER_ID, code: c.code, name: c.name, team: c.team, pts: c.points[PLAYER_ID] || 0 };
   return list.sort((a, b) => b.pts - a.pts);
 }
 
